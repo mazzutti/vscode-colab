@@ -35,6 +35,10 @@ Follow the on-screen instructions for authentication and connection.
 
 ## Examples
 
+<a target="_blank" href="https://colab.research.google.com/github/EssenceSentry/vscode-colab/blob/main/examples/simple_usage.ipynb">
+  <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
+</a>
+
 Check out the `examples/simple_usage.ipynb` notebook for a detailed example of how to use the `vscode-colab` library in Google Colab.
 
 ## Contributing

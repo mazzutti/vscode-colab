@@ -42,19 +42,20 @@ def download_vscode_cli(force_download=False):
         return False
 
 
-def define_extensions():
-    extensions = [
-        "mgesbert.python-path",
-        "ms-python.black-formatter",
-        "ms-python.isort",
-        "ms-python.python",
-        "ms-python.vscode-pylance",
-        "ms-python.debugpy",
-        "ms-toolsai.jupyter",
-        "ms-toolsai.jupyter-keymap",
-        "ms-toolsai.jupyter-renderers",
-        "ms-toolsai.tensorboard",
-    ]
+def define_extensions(extensions=None):
+    if extensions is None:
+        extensions = [
+            "mgesbert.python-path",
+            "ms-python.black-formatter",
+            "ms-python.isort",
+            "ms-python.python",
+            "ms-python.vscode-pylance",
+            "ms-python.debugpy",
+            "ms-toolsai.jupyter",
+            "ms-toolsai.jupyter-keymap",
+            "ms-toolsai.jupyter-renderers",
+            "ms-toolsai.tensorboard",
+        ]
 
     return extensions
 
@@ -140,7 +141,34 @@ def display_vscode_connection_options(tunnel_url, tunnel_name):
     display(HTML(html_content))
 
 
-def setup_vscode_server(tunnel_name="colab"):
+def setup_vscode_server(tunnel_name="colab", extensions=None):
+    """
+    Set up a VS Code server tunnel for remote development.
+
+    This function downloads the VS Code CLI, configures it with specified extensions,
+    and establishes a tunnel connection that allows accessing the current environment
+    through VS Code in a browser or desktop application.
+
+    The function handles the GitHub authentication flow and displays connection
+    information when the tunnel is successfully established.
+
+    Parameters
+    ----------
+    tunnel_name : str, optional
+        Name for the VS Code tunnel (default: "colab"). This name will be used
+        to identify the tunnel in the VS Code interface.
+    extensions : list, optional
+        List of VS Code extension IDs to install. If None, a default set of
+        recommended extensions will be used.
+
+    Notes
+    -----
+    - The function will download the VS Code CLI if not already present
+    - It automatically handles the GitHub device authentication flow
+    - When successful, it displays both browser and desktop connection options
+    - The server process continues running in the background until terminated
+    - You need to interact with the Colab notebook periodically to keep the server alive
+    """
     if not download_vscode_cli():
         print("❌ Failed to download VS Code CLI. Aborting setup.")
         return None
