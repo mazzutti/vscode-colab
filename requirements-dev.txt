@@ -1,0 +1,7 @@
+# Install the package in development mode
+-e .
+
+# Development tools
+build>=0.10.0
+twine>=4.0.2
+pytest>=7.0.0
