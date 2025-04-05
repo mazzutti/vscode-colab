@@ -64,3 +64,6 @@ venv.bak/
 # Specific files to the project
 examples/code
 examples/vscode_cli.tar.gz
+
+# Local configuration files
+.pypirc
