@@ -2,7 +2,7 @@
 name = "vscode-colab"
 version = "0.1.0"
 description = "A library to set up a VS Code server in Google Colab."
-authors = ["Your Name <youremail@example.com>"]
+authors = ["Agustín Sellanes <essence.sentry@gmail.com>"]
 license = "MIT"
 
 [tool.poetry.dependencies]
