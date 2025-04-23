@@ -5,6 +5,8 @@
 [![Python Version](https://img.shields.io/pypi/pyversions/vscode-colab.svg)](https://pypi.org/project/vscode-colab/)
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/EssenceSentry/vscode-colab/blob/main/examples/simple_usage.ipynb)
 
+![Logo](images/vscode_colab.png)
+
 **vscode-colab** is a Python library that enables you to connect your Google Colab or Kaggle notebooks to your local Visual Studio Code (VS Code) editor using [VS Code Remote Tunnels](https://code.visualstudio.com/docs/remote/tunnels). This integration allows you to leverage the full capabilities of VS Code while utilizing the computational resources of cloud-based notebooks.
 
 ## 🚀 Features
