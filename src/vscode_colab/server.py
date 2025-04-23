@@ -1,50 +1,62 @@
-"""
-This module contains the implementation of the setup_vscode_server function
-along with any helper functions required for setting up the VS Code server
-in Google Colab.
-"""
-
+import logging
 import os
 import re
 import subprocess
 import time
+from typing import List, Optional
 
 from IPython.display import HTML, display
 
+logging.basicConfig(
+    level=logging.WARNING,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+)
 
-def download_vscode_cli(force_download=False):
+
+def download_vscode_cli(force_download: bool = False) -> bool:
+    """
+    Downloads and extracts the Visual Studio Code CLI if it does not already exist in the current directory.
+
+    Args:
+        force_download (bool): If True, forces re-download and extraction even if the CLI already exists.
+
+    Returns:
+        bool: True if the CLI is successfully downloaded and extracted or already exists, False otherwise.
+
+    Side Effects:
+        - Downloads the VS Code CLI tarball using curl.
+        - Extracts the tarball using tar.
+        - Prints error messages to stdout if download or extraction fails.
+    """
     if os.path.exists("./code") and not force_download:
         return True
-
     try:
-        result = subprocess.run(
+        subprocess.run(
             "curl -Lk 'https://code.visualstudio.com/sha/download?build=stable&os=cli-alpine-x64' --output 'vscode_cli.tar.gz'",
             shell=True,
             check=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-        result = subprocess.run(
+        subprocess.run(
             "tar -xf vscode_cli.tar.gz",
             shell=True,
             check=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-
         if not os.path.exists("./code"):
-            print("❌ Error: Failed to extract VS Code CLI properly.")
+            logging.error("Failed to extract VS Code CLI properly.")
             return False
-
         return True
     except subprocess.CalledProcessError as e:
-        print(f"❌ Error during VS Code download or extraction: {e}")
+        logging.error(f"Error during VS Code download or extraction: {e}")
         return False
 
 
-def define_extensions(extensions=None):
+def define_extensions(extensions: Optional[List[str]] = None) -> List[str]:
     if extensions is None:
-        extensions = [
+        return [
             "mgesbert.python-path",
             "ms-python.black-formatter",
             "ms-python.isort",
@@ -56,32 +68,25 @@ def define_extensions(extensions=None):
             "ms-toolsai.jupyter-renderers",
             "ms-toolsai.tensorboard",
         ]
-
     return extensions
 
 
-def display_github_auth_link(output_line):
-    pattern = (
-        r"please log into (https://github\.com/login/device) and use code ([A-Z0-9\-]+)"
-    )
-    match = re.search(pattern, output_line)
-
-    if not match:
-        return False
-
-    url, code = match.groups()
-
-    html_content = f"""
-    <div style="padding: 15px; background-color: #f0f7ff; border-radius: 8px; margin: 15px 0; font-family: Arial, sans-serif; border: 1px solid #c8e1ff;">
+def display_github_auth_link(url: str, code: str) -> None:
+    html = f"""
+        <div
+        style="padding: 15px; background-color: #f0f7ff; border-radius: 8px; margin: 15px 0; font-family: Arial, sans-serif; border: 1px solid #c8e1ff;">
         <h3 style="margin-top: 0; color: #0366d6; font-size: 18px;">GitHub Authentication Required</h3>
         <p style="margin-bottom: 15px;">Please authenticate by clicking the link below and entering the code:</p>
         <div style="display: flex; align-items: center; margin-bottom: 10px; flex-wrap: wrap;">
-            <a href="{url}" target="_blank" style="background-color: #2ea44f; color: white; padding: 10px 16px; text-decoration: none; border-radius: 6px; margin-right: 15px; margin-bottom: 10px; font-weight: 500;">
+            <a href="{url}" target="_blank"
+                style="background-color: #2ea44f; color: white; padding: 10px 16px; text-decoration: none; border-radius: 6px; margin-right: 15px; margin-bottom: 10px; font-weight: 500;">
                 Open GitHub Authentication
             </a>
-            <div style="background-color: #ffffff; border: 1px solid #d1d5da; border-radius: 6px; padding: 10px 16px; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; position: relative; display: flex; align-items: center; margin-bottom: 10px;">
+            <div
+                style="background-color: #ffffff; border: 1px solid #d1d5da; border-radius: 6px; padding: 10px 16px; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; position: relative; display: flex; align-items: center; margin-bottom: 10px;">
                 <span id="auth-code" style="margin-right: 15px; font-size: 16px;">{code}</span>
-                <button id="copyButton" onclick="copyAuthCode()" style="background-color: #f6f8fa; border: 1px solid #d1d5da; border-radius: 6px; padding: 6px 12px; cursor: pointer; font-size: 14px;">
+                <button id="copyButton" onclick="copyAuthCode()"
+                    style="background-color: #f6f8fa; border: 1px solid #d1d5da; border-radius: 6px; padding: 6px 12px; cursor: pointer; font-size: 14px;">
                     Copy
                 </button>
             </div>
@@ -108,140 +113,170 @@ def display_github_auth_link(output_line):
         </script>
     </div>
     """
-
-    display(HTML(html_content))
-    return True
+    display(HTML(html))
 
 
-def display_vscode_connection_options(tunnel_url, tunnel_name):
-    html_content = f"""
-    <div style="padding: 15px; background-color: #f5f9ff; border-radius: 8px; margin: 15px 0; font-family: Arial, sans-serif; border: 1px solid #c8e1ff;">
-        <h3 style="margin-top: 0; color: #0366d6; font-size: 18px;">✅ VS Code Server Ready!</h3>
-        
-        <div style="margin-bottom: 20px;">
-            <h4 style="margin-bottom: 10px; color: #24292e; font-size: 16px;">Option 1: Open in Browser</h4>
-            <p style="margin-bottom: 15px;">Click the button below to open VS Code directly in your browser:</p>
-            <a href="{tunnel_url}" target="_blank" style="background-color: #0366d6; color: white; padding: 10px 16px; text-decoration: none; border-radius: 6px; font-weight: 500; display: inline-block; margin-bottom: 10px;">
-                Open VS Code in Browser
-            </a>
-        </div>
-        
-        <div style="margin-bottom: 20px;">
-            <h4 style="margin-bottom: 10px; color: #24292e; font-size: 16px;">Option 2: Connect from Desktop VS Code</h4>
-            <p style="margin-bottom: 8px;">To connect from your local VS Code:</p>
-            <ol style="margin-left: 20px; margin-bottom: 15px;">
-                <li>Make sure you're signed in with the same GitHub account in VS Code</li>
-                <li>Open the Remote Explorer sidebar in VS Code (<kbd>Ctrl+Shift+P</kbd> or <kbd>Cmd+Shift+P</kbd>, then type "Remote Explorer")</li>
-                <li>Look for "<strong>{tunnel_name}</strong>" under "Tunnels" and click to connect</li>
+def display_vscode_connection_options(
+    tunnel_url: str,
+    tunnel_name: str,
+) -> None:
+    html = f"""
+        <div
+            style="padding:15px; background:#f5f9ff; border-radius:8px; margin:15px 0; font-family:Arial,sans-serif; border:1px solid #c8e1ff;">
+            <h3 style="margin:0 0 10px; color:#0366d6;">✅ VS Code Server Ready!</h3>
+
+            <a href="{tunnel_url}" target="_blank"
+                style="background:#0366d6;color:white;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:500;display:inline-block;">Open
+                VS Code in Browser</a>
+
+            <hr style="margin:15px 0;" />
+            <p><strong>Connect from desktop VS Code:</strong></p>
+            <ol>
+                <li>Sign in with the same GitHub account in VS Code.</li>
+                <li>Open the Remote Explorer (<kbd>Ctrl+Shift+P</kbd>, type "Remote Explorer").</li>
+                <li>Select "{tunnel_name}" under "Tunnels" and connect.</li>
             </ol>
         </div>
-    </div>
     """
+    display(HTML(html))
 
-    display(HTML(html_content))
 
-
-def setup_vscode_server(tunnel_name="colab", extensions=None):
+def login(provider: str = "github") -> bool:
     """
-    Set up a VS Code server tunnel for remote development.
+    Attempts to log in to VS Code Tunnel using the specified authentication provider.
 
-    This function downloads the VS Code CLI, configures it with specified extensions,
-    and establishes a tunnel connection that allows accessing the current environment
-    through VS Code in a browser or desktop application.
+    This function ensures the VS Code CLI is available, then initiates the login process
+    using the CLI with the given provider (default is "github"). It monitors the CLI output
+    for a login URL and code, and displays them for user authentication. If successful,
+    returns True; otherwise, prints an error message and returns False.
 
-    The function handles the GitHub authentication flow and displays connection
-    information when the tunnel is successfully established.
+    Args:
+        provider (str): The authentication provider to use for login (default: "github").
 
-    Parameters
-    ----------
-    tunnel_name : str, optional
-        Name for the VS Code tunnel (default: "colab"). This name will be used
-        to identify the tunnel in the VS Code interface.
-    extensions : list, optional
-        List of VS Code extension IDs to install. If None, a default set of
-        recommended extensions will be used.
-
-    Notes
-    -----
-    - The function will download the VS Code CLI if not already present
-    - It automatically handles the GitHub device authentication flow
-    - When successful, it displays both browser and desktop connection options
-    - The server process continues running in the background until terminated
-    - You need to interact with the Colab notebook periodically to keep the server alive
+    Returns:
+        bool: True if the login URL and code were detected and displayed, False otherwise.
     """
     if not download_vscode_cli():
-        print("❌ Failed to download VS Code CLI. Aborting setup.")
-        return None
+        logging.error("VS Code CLI not available, cannot perform login.")
+        return False
 
-    extensions = define_extensions()
-
-    command = f"./code tunnel --accept-server-license-terms --name {tunnel_name}"
-
-    if extensions:
-        ext_args = " ".join(f"--install-extension {ext}" for ext in extensions)
-        command = f"{command} {ext_args}"
-
+    cmd = f"./code tunnel user login --provider {provider}"
     try:
-        process = subprocess.Popen(
-            command,
-            shell=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            stdin=subprocess.PIPE,
-            text=True,
+        proc = subprocess.Popen(
+            cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
         )
+        if proc.stdout is None:
+            logging.error("Failed to get login process stdout.")
+            proc.terminate()
+            return False
 
-        github_auth_shown = False
-        tunnel_url = None
+        url_re = re.compile(r"https?://[^\s]+")
+        code_re = re.compile(r"[A-Z0-9]{4}-[A-Z0-9]{4,}")
 
-        github_auth_regex = r"please log into (https://github\.com/login/device) and use code ([A-Z0-9\-]+)"
-        tunnel_url_regex = (
-            r"Open this link in your browser (https://vscode\.dev/tunnel/[\w-]+/[\w-]+)"
-        )
-        login_prompt = "How would you like to log in to Visual Studio Code?"
+        start = time.time()
+        while proc.poll() is None and time.time() - start < 60:
+            line = proc.stdout.readline()
+            if line:
+                um = url_re.search(line)
+                cm = code_re.search(line)
+                if um and cm:
+                    display_github_auth_link(um.group(0), cm.group(0))
+                    return True  # Found URL and code
 
-        while process.poll() is None:
-            output = process.stdout.readline()
-            if not output:
-                continue
+        # If loop finishes without finding URL/code
+        if proc.poll() is None:  # Process still running, but timeout reached
+            logging.warning(
+                "Couldn't detect login URL and code within the timeout period."
+            )
+            proc.terminate()  # Clean up the process
+        else:  # Process ended before URL/code was detected
+            logging.warning(
+                "Login process ended unexpectedly before URL/code could be detected."
+            )
+            # Optionally read remaining output
+            if proc.stdout:
+                remaining_output = proc.stdout.read()
+                if remaining_output:
+                    logging.debug("Login process output:\n%s", remaining_output)
 
-            if login_prompt in output and not github_auth_shown:
-                process.stdin.write("\x1b[B\n")
-                process.stdin.flush()
-
-            github_match = re.search(github_auth_regex, output)
-            if github_match and not github_auth_shown:
-                display_github_auth_link(output)
-                github_auth_shown = True
-
-            tunnel_match = re.search(tunnel_url_regex, output)
-            if tunnel_match:
-                tunnel_url = tunnel_match.group(1)
-                display_vscode_connection_options(tunnel_url, tunnel_name)
-                break
-
-        if not tunnel_url:
-            start_time = time.time()
-            while time.time() - start_time < 30:
-                output = process.stdout.readline()
-                if not output:
-                    time.sleep(0.1)
-                    continue
-
-                tunnel_match = re.search(tunnel_url_regex, output)
-                if tunnel_match:
-                    tunnel_url = tunnel_match.group(1)
-                    display_vscode_connection_options(tunnel_url, tunnel_name)
-                    break
-
-            if not tunnel_url:
-                print("⚠️ VS Code server started, but couldn't find connection URL.")
-                print(
-                    "   Once the server is ready, look for a URL like https://vscode.dev/tunnel/..."
-                )
-
-        return process
+        return False  # URL/code not found
 
     except Exception as e:
-        print(f"❌ Error setting up VS Code server: {e}")
+        logging.error(f"Error during login: {e}")
+        # Ensure process is cleaned up if it exists and an exception occurred
+        if "proc" in locals() and proc.poll() is None:
+            proc.terminate()
+        return False
+
+
+def connect(
+    tunnel_name: str = "colab",
+    extensions: Optional[List[str]] = None,
+) -> Optional[subprocess.Popen]:
+    """
+    Establishes a VS Code tunnel connection using the VS Code CLI.
+
+    This function attempts to start a VS Code tunnel with the specified tunnel name and optional extensions.
+    It ensures the VS Code CLI is available, installs the requested extensions, and launches the tunnel.
+    If successful, it detects and displays the tunnel URL for remote access.
+
+    Args:
+        tunnel_name (str): The name to assign to the tunnel. Defaults to "colab".
+        extensions (list or None): A list of VS Code extension identifiers to install before starting the tunnel.
+
+    Returns:
+        subprocess.Popen or None: The process object for the running tunnel if the URL was detected successfully,
+                                  or None if an error occurred, the CLI is unavailable, or the URL wasn't found in time.
+    """
+    if not download_vscode_cli():
+        logging.error("VS Code CLI not available, cannot start tunnel.")
+        return None
+
+    exts = define_extensions(extensions)
+    ext_args = " ".join(f"--install-extension {e}" for e in exts)
+    cmd = f"./code tunnel --accept-server-license-terms --name {tunnel_name} {ext_args}"
+
+    try:
+        proc = subprocess.Popen(
+            cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+        )
+        # Make sure stdout is available
+        if proc.stdout is None:
+            logging.error("Failed to get tunnel process stdout.")
+            proc.terminate()  # Clean up the process
+            return None
+
+        url_re = re.compile(r"https://vscode\.dev/tunnel/[\w-]+/[\w-]+")
+        start = time.time()
+        timeout_seconds = 60
+        while proc.poll() is None and time.time() - start < timeout_seconds:
+            line = proc.stdout.readline()
+            if line:
+                logging.debug(line.strip())  # Log tunnel output line
+                m = url_re.search(line)
+                if m:
+                    display_vscode_connection_options(m.group(0), tunnel_name)
+                    return proc  # Return process only if URL is found
+
+        # If loop finishes without finding URL (timeout or process ended)
+        if proc.poll() is None:  # Process still running, but timeout reached
+            logging.error(f"Tunnel URL not detected within {timeout_seconds} seconds.")
+            proc.terminate()  # Clean up the process
+            return None
+        else:  # Process ended before URL was detected
+            logging.error(
+                "Tunnel process exited unexpectedly before URL could be detected."
+            )
+            remaining_output = proc.stdout.read()
+            if remaining_output:
+                logging.debug(
+                    "Tunnel output:\n%s", remaining_output
+                )  # Log remaining output as debug
+            return None
+
+    except Exception as e:
+        logging.error(f"Error starting tunnel: {e}")
+        # Ensure process is cleaned up if it exists and an exception occurred
+        if "proc" in locals() and proc.poll() is None:
+            proc.terminate()
         return None
