@@ -17,7 +17,7 @@ Establishes the connection using the official `code tunnel` feature from VS Code
   
 ### Simplified Setup
 
-The `setup_vscode_server` function streamlines the process by:
+The `login` and `connect()` functions streamlines the process by:
   
 * Downloading the required VS Code CLI tool.
 * Initiating the `code tunnel` process.
@@ -53,9 +53,15 @@ from vscode_colab import login, connect
 
 # Start the VS Code server
 login()
+```
 
+![Login](images/login.png)
+
+```python
 connect()
 ```
+
+![Login](images/connect.png)
 
 Follow the on-screen instructions for authentication and connection.
 
