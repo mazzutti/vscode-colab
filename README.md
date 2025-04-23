@@ -46,13 +46,15 @@ pip install vscode-colab
   <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
 </a>
 
-To set up the VS Code server in Google Colab, simply import the library and call the `setup_vscode_server()` function:
+To set up the VS Code server in Google Colab, simply import the library and call the `login()` and then `connect()`:
 
 ```python
-from vscode_colab import setup_vscode_server
+from vscode_colab import login, connect
 
 # Start the VS Code server
-setup_vscode_server()
+login()
+
+connect()
 ```
 
 Follow the on-screen instructions for authentication and connection.
