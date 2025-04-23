@@ -1,72 +1,100 @@
-# vscode-colab: Connect VS Code to Google Colab Runtimes
+# vscode-colab: Connect VS Code to Google Colab and Kaggle Runtimes
 
 [![PyPI version](https://img.shields.io/pypi/v/vscode-colab.svg)](https://pypi.org/project/vscode-colab/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python Version](https://img.shields.io/pypi/pyversions/vscode-colab.svg)](https://pypi.org/project/vscode-colab/)
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/EssenceSentry/vscode-colab/blob/main/examples/simple_usage.ipynb)
 
-`vscode-colab` is a Python library designed to facilitate the connection of a Visual Studio Code instance (desktop or web-based) to a remote runtime environment, specifically Google Colab or Kaggle notebooks.
+**vscode-colab** is a Python library that enables you to connect your Google Colab or Kaggle notebooks to your local Visual Studio Code (VS Code) editor using [VS Code Remote Tunnels](https://code.visualstudio.com/docs/remote/tunnels). This integration allows you to leverage the full capabilities of VS Code while utilizing the computational resources of cloud-based notebooks.
 
-It automates the setup of a secure tunnel, enabling users to leverage the features of VS Code while utilizing the computational resources provided by these cloud platforms.
+## 🚀 Features
 
-## Key Features & Advantages
+- Seamless connection between Colab/Kaggle notebooks and local VS Code editor.
+- Utilizes official VS Code Remote Tunnels for secure and efficient connectivity.
+- Minimal setup with intuitive `login()` and `connect()` functions.
+- Interactive UI elements within notebooks for enhanced user experience.
 
-### Official VS Code Tunnels
+## 🧰 Installation
 
-Establishes the connection using the official `code tunnel` feature from VS Code. This provides a secure, end-to-end encrypted tunnel managed via Microsoft's infrastructure.
-  
-### Simplified Setup
+Install the package via pip:
 
-The `login` and `connect()` functions streamlines the process by:
-  
-* Downloading the required VS Code CLI tool.
-* Initiating the `code tunnel` process.
-* Parsing and displaying GitHub device authentication prompts within the notebook for user action.
-* Automatically installing a default set of useful Python development extensions (e.g., Python language support, Pylance, Black formatter, isort, Jupyter tools).
-* Detecting and displaying the connection URL (`vscode.dev`) and desktop connection instructions.
-
-### Flexible Connectivity
-
-Supports connecting to the remote runtime via:
-
-* The web-based VS Code editor at `vscode.dev`.
-* A locally installed VS Code desktop application through the "Remote - Tunnels" extension.
-
-## Installation
-
-Install the library using pip:
-
-```bash
+```shell
 pip install vscode-colab
 ```
 
-## Usage
+## 📖 Usage
 
-<a target="_blank" href="https://colab.research.google.com/github/EssenceSentry/vscode-colab/blob/main/examples/simple_usage.ipynb">
-  <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
-</a>
+[Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/EssenceSentry/vscode-colab/blob/main/examples/simple_usage.ipynb)
 
-To set up the VS Code server in Google Colab, simply import the library and call the `login()` and then `connect()`:
+### 1. Import the Library
+
+In your Colab or Kaggle notebook, import the `vscode_colab` module:
 
 ```python
-from vscode_colab import login, connect
+import vscode_colab
+```
 
-# Start the VS Code server
-login()
+### 2. Authenticate with VS Code
+
+Run the `login()` function to authenticate your session:
+
+```python
+vscode_colab.login()
 ```
 
 ![Login](images/login.png)
 
+This will display a code and a URL. Click the URL, enter the code, and sign in with your GitHub or Microsoft account to authorize the connection.
+
+### 3. Establish the Tunnel
+
+After successful authentication, initiate the tunnel:
+
 ```python
-connect()
+vscode_colab.connect()
 ```
 
 ![Login](images/connect.png)
 
-Follow the on-screen instructions for authentication and connection.
+This will start the VS Code tunnel, allowing you to connect your local VS Code editor to the Colab/Kaggle environment.
 
-Check out the `examples/simple_usage.ipynb` notebook for a detailed example of how to use the `vscode-colab` library in Google Colab.
+### 4. Connect via VS Code
 
-## License
+In your local VS Code editor:
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for more details.
+1. Open the Command Palette (`Ctrl+Shift+P` or `Cmd+Shift+P`).
+2. Select `Remote Tunnels: Connect to Tunnel...`.
+3. Choose the tunnel corresponding to your notebook session.
+
+You are now connected to your Colab/Kaggle environment through VS Code!
+
+## ⚠️ Notes
+
+- The `connect()` function will block the notebook cell execution as it maintains the tunnel connection. To terminate the tunnel, you can:
+  - Interrupt the cell execution.
+  - Close the notebook tab.
+  - Shut down the notebook runtime.
+- Ensure that your local VS Code editor has the [Remote Tunnels extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode.remote-server) installed.
+
+## 🧪 Testing
+
+To run the test suite:
+
+```bash
+git clone https://github.com/EssenceSentry/vscode-colab.git
+cd vscode-colab
+pip install -r requirements-dev.txt
+pytest
+```
+
+## 🛠️ Development
+
+The project uses `setup.cfg` for configuration and `requirements-dev.txt` for development dependencies. Contributions are welcome!
+
+## 📄 License
+
+This project is licensed under the MIT License. See the [LICENSE](https://github.com/EssenceSentry/vscode-colab/blob/main/LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+Special thanks to the developers of [VS Code Remote Tunnels](https://code.visualstudio.com/docs/remote/tunnels) for enabling seamless remote development experiences.
