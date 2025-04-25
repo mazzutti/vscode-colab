@@ -463,9 +463,6 @@ def test_configure_git_file_not_found(monkeypatch, caplog):
     assert "Git configuration failed" in caplog.text
 
 
-# --- Tests for display functions (unchanged logic, just ensure they run) ---
-
-
 def test_display_github_auth_link(monkeypatch):
     # Patch display and HTML to capture the HTML string
     called = {}
