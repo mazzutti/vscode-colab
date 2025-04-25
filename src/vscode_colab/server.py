@@ -12,6 +12,19 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
 
+DEFAULT_EXTENSIONS = {
+    "mgesbert.python-path",
+    "ms-python.black-formatter",
+    "ms-python.isort",
+    "ms-python.python",
+    "ms-python.vscode-pylance",
+    "ms-python.debugpy",
+    "ms-toolsai.jupyter",
+    "ms-toolsai.jupyter-keymap",
+    "ms-toolsai.jupyter-renderers",
+    "ms-toolsai.tensorboard",
+}
+
 
 def download_vscode_cli(force_download: bool = False) -> bool:
     """
@@ -52,23 +65,6 @@ def download_vscode_cli(force_download: bool = False) -> bool:
     except subprocess.CalledProcessError as e:
         logging.error(f"Error during VS Code download or extraction: {e}")
         return False
-
-
-def define_extensions(extensions: Optional[List[str]] = None) -> List[str]:
-    if extensions is None:
-        return [
-            "mgesbert.python-path",
-            "ms-python.black-formatter",
-            "ms-python.isort",
-            "ms-python.python",
-            "ms-python.vscode-pylance",
-            "ms-python.debugpy",
-            "ms-toolsai.jupyter",
-            "ms-toolsai.jupyter-keymap",
-            "ms-toolsai.jupyter-renderers",
-            "ms-toolsai.tensorboard",
-        ]
-    return extensions
 
 
 def display_github_auth_link(
@@ -281,71 +277,71 @@ def configure_git(
     """
     Configures global Git user name and email using the provided values.
 
+    Both `git_user_name` and `git_user_email` must be provided together, or neither should be provided.
+    If only one is provided, configuration is skipped and a warning is logged.
+
     Attempts to set the global Git configuration for user.name and user.email
     using the `git config --global` command. Logs the outcome of each operation,
     including any errors encountered (such as missing git command or subprocess errors).
     If configuration fails, a warning is logged to indicate that manual setup may be required.
 
     Args:
-        git_user_name (Optional[str]): The Git user name to set globally. If None, user.name is not changed.
-        git_user_email (Optional[str]): The Git user email to set globally. If None, user.email is not changed.
+        git_user_name (Optional[str]): The Git user name to set globally. Must be provided with git_user_email.
+        git_user_email (Optional[str]): The Git user email to set globally. Must be provided with git_user_name.
 
     Logs:
         - Info messages for attempted and successful configuration.
-        - Warning messages for failures or missing git command.
+        - Warning messages for failures, missing git command, or incomplete parameters.
         - Error messages for unexpected exceptions.
     """
+    if (git_user_name and not git_user_email) or (git_user_email and not git_user_name):
+        logging.warning(
+            "Both git_user_name and git_user_email must be provided together. Skipping git configuration."
+        )
+        return
+
+    if not git_user_name and not git_user_email:
+        return  # Nothing to configure
+
     git_configured = True  # Assume success unless proven otherwise
-    if git_user_name:
-        logging.info(f"Attempting to set git global user.name='{git_user_name}'...")
-        try:
-            subprocess.run(
-                ["git", "config", "--global", "user.name", git_user_name],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-            logging.info("Successfully set git global user.name.")
-        except FileNotFoundError:
-            logging.warning("git command not found. Cannot configure git user.name.")
-            git_configured = False
-        except subprocess.CalledProcessError as e:
-            logging.warning(f"Failed to set git user.name. Error: {e.stderr.strip()}")
-            git_configured = False
-        except Exception as e:
-            logging.error(f"Unexpected error setting git user.name: {e}")
-            git_configured = False
+    try:
+        logging.info(
+            f"Attempting to set git global user.name='{git_user_name}' and user.email='{git_user_email}'..."
+        )
+        subprocess.run(
+            ["git", "config", "--global", "user.name", git_user_name],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        subprocess.run(
+            ["git", "config", "--global", "user.email", git_user_email],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        logging.info("Successfully set git global user.name and user.email.")
+    except FileNotFoundError:
+        logging.warning(
+            "git command not found. Cannot configure git user.name and user.email."
+        )
+        git_configured = False
+    except subprocess.CalledProcessError as e:
+        logging.warning(
+            f"Failed to set git user.name or user.email. Error: {e.stderr.strip()}"
+        )
+        git_configured = False
+    except Exception as e:
+        logging.error(f"Unexpected error setting git user.name or user.email: {e}")
+        git_configured = False
 
-    if git_user_email:
-        logging.info(f"Attempting to set git global user.email='{git_user_email}'...")
-        try:
-            subprocess.run(
-                ["git", "config", "--global", "user.email", git_user_email],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-            logging.info("Successfully set git global user.email.")
-        except FileNotFoundError:
-            # Only warn if not already warned above
-            if git_configured:
-                logging.warning(
-                    "git command not found. Cannot configure git user.email."
-                )
-            git_configured = False
-        except subprocess.CalledProcessError as e:
-            logging.warning(f"Failed to set git user.email. Error: {e.stderr.strip()}")
-            git_configured = False
-        except Exception as e:
-            logging.error(f"Unexpected error setting git user.email: {e}")
-            git_configured = False
-
-    if not git_configured and (git_user_name or git_user_email):
+    if not git_configured:
         logging.warning("Git configuration failed. Commits might require manual setup.")
 
 
 def connect(
     name: str = "colab",
+    include_default_extensions: bool = True,
     extensions: Optional[List[str]] = None,
     git_user_name: Optional[str] = None,
     git_user_email: Optional[str] = None,
@@ -360,10 +356,14 @@ def connect(
     Args:
         name (str): The name to assign to the tunnel. Defaults to "colab".
         extensions (list or None): A list of VS Code extension identifiers to install before starting the tunnel.
+        include_default_extensions (bool): Whether to include default extensions in the installation. Defaults to True. If False, only the provided extensions will be installed.
+        git_user_name (str or None): The Git user name to set globally.
+        git_user_email (str or None): The Git user email to set globally. Both must be provided together or the configuration is skipped with a warning.
 
     Returns:
-        subprocess.Popen or None: The process object for the running tunnel if the URL was detected successfully,
-                                  or None if an error occurred, the CLI is unavailable, or the URL wasn't found in time.
+        subprocess.Popen or None: The process object for the running tunnel if
+        the URL was detected successfully, or None if an error occurred, the
+        CLI is unavailable, or the URL wasn't found in time.
     """
     if not download_vscode_cli():
         logging.error("VS Code CLI not available, cannot start tunnel.")
@@ -371,8 +371,10 @@ def connect(
 
     configure_git(git_user_name, git_user_email)
 
-    exts = define_extensions(extensions)
-    ext_args = " ".join(f"--install-extension {e}" for e in exts)
+    exts = set(DEFAULT_EXTENSIONS) if include_default_extensions else set()
+    if extensions:
+        exts.update(extensions)
+    ext_args = " ".join(f"--install-extension {e}" for e in sorted(exts))
     cmd = f"./code tunnel --accept-server-license-terms --name {name} {ext_args}"
 
     try:
