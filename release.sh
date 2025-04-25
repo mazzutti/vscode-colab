@@ -17,6 +17,16 @@ read -p "Enter new version: " NEW_VERSION
 # Update version in setup.cfg
 sed -i "s/version = $CURRENT_VERSION/version = $NEW_VERSION/" setup.cfg
 
+# Run tests with coverage
+coverage run -m pytest
+COVERAGE=$(coverage report | grep TOTAL | awk '{print $4}' | sed 's/%//')
+if (( $(echo "$COVERAGE < 90" | bc -l) )); then
+  echo "Test coverage is below 90% ($COVERAGE%). Aborting release."
+  exit 1
+else
+  echo -e "\033[0;32mTest coverage: $COVERAGE%\033[0m"
+fi
+
 # Build package
 rm -rf dist/ build/ *.egg-info/
 python -m build
