@@ -208,7 +208,7 @@ def test_connect_success(monkeypatch):
 
     monkeypatch.setattr(server, "display_vscode_connection_options", fake_display)
     monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: mock_proc)
-    result = server.connect(tunnel_name="mytunnel", extensions=["ext1"])
+    result = server.connect(name="mytunnel", extensions=["ext1"])
     assert result == mock_proc
     assert called["url"].startswith("https://vscode.dev/tunnel/")
     assert called["name"] == "mytunnel"

@@ -71,45 +71,99 @@ def define_extensions(extensions: Optional[List[str]] = None) -> List[str]:
     return extensions
 
 
-def display_github_auth_link(url: str, code: str) -> None:
+def display_github_auth_link(
+    url: str,
+    code: str,
+) -> None:
+    """
+    Displays an HTML block in IPython with the GitHub authentication link and code.
+    Dynamically adds a copy button only if clipboard access is likely available,
+    and ensures the code text is visible. Simplifies copy feedback.
+
+    Args:
+        url (str): The GitHub device authentication URL.
+        code (str): The user code to enter on GitHub.
+    """
+    # Ensure the code string is properly escaped for use in JavaScript strings
+    # Escape backslashes first, then double quotes
+    escaped_code = code.replace("\\", "\\\\").replace('"', '\\"')
+
     html = f"""
-        <div
-        style="padding: 15px; background-color: #f0f7ff; border-radius: 8px; margin: 15px 0; font-family: Arial, sans-serif; border: 1px solid #c8e1ff;">
+    <div style="padding: 15px; background-color: #f0f7ff; border-radius: 8px; margin: 15px 0; font-family: Arial, sans-serif; border: 1px solid #c8e1ff; line-height: 1.6;">
         <h3 style="margin-top: 0; color: #0366d6; font-size: 18px;">GitHub Authentication Required</h3>
-        <p style="margin-bottom: 15px;">Please authenticate by clicking the link below and entering the code:</p>
-        <div style="display: flex; align-items: center; margin-bottom: 10px; flex-wrap: wrap;">
+        <p style="margin-bottom: 15px; color: #333333;">Please open the link below in a new tab and enter the following code:</p>
+        <div style="display: flex; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 15px;">
             <a href="{url}" target="_blank"
-                style="background-color: #2ea44f; color: white; padding: 10px 16px; text-decoration: none; border-radius: 6px; margin-right: 15px; margin-bottom: 10px; font-weight: 500;">
-                Open GitHub Authentication
+                style="background-color: #2ea44f; color: white; padding: 10px 16px; text-decoration: none; border-radius: 6px; font-weight: 500; white-space: nowrap;">
+                Open GitHub Authentication Page
             </a>
-            <div
-                style="background-color: #ffffff; border: 1px solid #d1d5da; border-radius: 6px; padding: 10px 16px; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; position: relative; display: flex; align-items: center; margin-bottom: 10px;">
-                <span id="auth-code" style="margin-right: 15px; font-size: 16px;">{code}</span>
-                <button id="copyButton" onclick="copyAuthCode()"
-                    style="background-color: #f6f8fa; border: 1px solid #d1d5da; border-radius: 6px; padding: 6px 12px; cursor: pointer; font-size: 14px;">
-                    Copy
-                </button>
+            <div id="code-container" style="background-color: #ffffff; border: 1px solid #d1d5da; border-radius: 6px; padding: 10px 16px; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; display: flex; align-items: center;">
+                <span id="auth-code" style="margin-right: 15px; font-size: 16px; user-select: all; color: #24292e;">{code}</span>
             </div>
         </div>
+        <p id="copy-fallback-note" style="font-size: small; color: #586069; margin-top: 10px; display: none;">
+            Please select the code manually and copy it.
+        </p>
+
         <script>
-            function copyAuthCode() {{
-                const code = "{code}";
-                const copyButton = document.getElementById('copyButton');
-                
-                navigator.clipboard.writeText(code).then(() => {{
-                    copyButton.textContent = 'Copied!';
-                    copyButton.style.backgroundColor = '#dff0d8';
-                    copyButton.style.borderColor = '#d6e9c6';
-                    copyButton.style.color = '#3c763d';
-                    
-                    setTimeout(() => {{
-                        copyButton.textContent = 'Copy';
-                        copyButton.style.backgroundColor = '#f6f8fa';
-                        copyButton.style.borderColor = '#d1d5da';
-                        copyButton.style.color = '';
-                    }}, 2000);
-                }});
-            }}
+            (function() {{
+                const code = "{escaped_code}";
+                const codeContainer = document.getElementById('code-container');
+                const fallbackNote = document.getElementById('copy-fallback-note');
+
+                // Function to attempt copying
+                function attemptCopy() {{
+                    const copyButton = document.getElementById('dynamicCopyButton');
+                    if (!copyButton) return;
+
+                    navigator.clipboard.writeText(code).then(() => {{
+                        copyButton.textContent = 'Copied!';
+                        copyButton.style.backgroundColor = '#dff0d8';
+                        copyButton.style.borderColor = '#d6e9c6';
+                        copyButton.style.color = '#3c763d';
+
+                        setTimeout(() => {{
+                            copyButton.textContent = 'Copy';
+                            copyButton.style.backgroundColor = '#f6f8fa';
+                            copyButton.style.borderColor = '#d1d5da';
+                            copyButton.style.color = '';
+                        }}, 2500);
+
+                    }}).catch(err => {{
+                        console.error('Failed to copy code automatically: ', err);
+                        copyButton.textContent = 'Copy Failed';
+                        copyButton.disabled = true;
+                        copyButton.style.backgroundColor = '#f2dede';
+                        copyButton.style.borderColor = '#ebccd1';
+                        copyButton.style.color = '#a94442';
+                        fallbackNote.style.display = 'block';
+                    }});
+                }}
+
+                // Check if Clipboard API is available and likely usable
+                if (navigator.clipboard && navigator.clipboard.writeText) {{
+                    // Create and add the button dynamically
+                    const button = document.createElement('button');
+                    button.id = 'dynamicCopyButton';
+                    button.textContent = 'Copy';
+                    button.style.backgroundColor = '#f6f8fa';
+                    button.style.border = '1px solid #d1d5da';
+                    button.style.borderRadius = '6px';
+                    button.style.padding = '6px 12px';
+                    button.style.cursor = 'pointer';
+                    button.style.fontSize = '14px';
+                    button.style.whiteSpace = 'nowrap';
+                    button.style.marginLeft = '10px'; // Add some space if button appears
+                    button.onclick = attemptCopy; // Assign the copy function
+
+                    // Append the button to the container
+                    codeContainer.appendChild(button);
+
+                }} else {{
+                    // Clipboard API not available, ensure fallback note is visible
+                    fallbackNote.style.display = 'block';
+                }}
+            }})();
         </script>
     </div>
     """
@@ -120,23 +174,34 @@ def display_vscode_connection_options(
     tunnel_url: str,
     tunnel_name: str,
 ) -> None:
+    text_color = "#333333"
     html = f"""
-        <div
-            style="padding:15px; background:#f5f9ff; border-radius:8px; margin:15px 0; font-family:Arial,sans-serif; border:1px solid #c8e1ff;">
-            <h3 style="margin:0 0 10px; color:#0366d6;">✅ VS Code Server Ready!</h3>
+    <div style="padding:15px; background:#f0f9f0; border-radius:8px; margin:15px 0; font-family:Arial,sans-serif; border:1px solid #c8e6c9; line-height: 1.6;">
+        <h3 style="margin:0 0 15px; color:#2e7d32; font-size: 18px;">✅ VS Code Tunnel Ready!</h3>
 
+        <p style="margin-bottom: 15px; color: {text_color};">You can connect in two ways:</p>
+
+        <div style="margin-bottom: 15px;">
+            <strong style="color: {text_color};">1. Open in Browser:</strong><br>
             <a href="{tunnel_url}" target="_blank"
-                style="background:#0366d6;color:white;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:500;display:inline-block;">Open
-                VS Code in Browser</a>
+                style="background-color:#1976d2; color:white; padding:10px 16px; border-radius:6px; text-decoration:none; font-weight:500; display:inline-block; margin-top: 5px;">
+                Open VS Code Web
+            </a>
+        </div>
 
-            <hr style="margin:15px 0;" />
-            <p><strong>Connect from desktop VS Code:</strong></p>
-            <ol>
-                <li>Sign in with the same GitHub account in VS Code.</li>
-                <li>Open the Remote Explorer (<kbd>Ctrl+Shift+P</kbd>, type "Remote Explorer").</li>
-                <li>Select "{tunnel_name}" under "Tunnels" and connect.</li>
+        <hr style="border: 0; border-top: 1px solid #c8e6c9; margin: 20px 0;" />
+
+        <div style="margin-bottom: 10px; color: {text_color};">
+            <strong style="color: {text_color};">2. Connect from Desktop VS Code:</strong>
+            <ol style="margin-top: 5px; padding-left: 20px; color: {text_color};">
+                <li>Make sure you have the <a href="https://marketplace.visualstudio.com/items?itemName=ms-vscode.remote-server" target="_blank" style="color: #1976d2;">Remote Tunnels</a> extension installed.</li>
+                <li>Ensure you are signed in to VS Code with the <strong>same GitHub account</strong> used for authentication.</li>
+                <li>Open the Command Palette (<kbd style="background: #e0e0e0; color: #333; padding: 2px 4px; border-radius: 3px; border: 1px solid #ccc; font-family: monospace;">Ctrl+Shift+P</kbd> or <kbd style="background: #e0e0e0; color: #333; padding: 2px 4px; border-radius: 3px; border: 1px solid #ccc; font-family: monospace;">Cmd+Shift+P</kbd>).</li>
+                <li>Run the command: <code style="background: #e0e0e0; color: #333; padding: 2px 5px; border-radius: 3px;">Remote Tunnels: Connect to Tunnel</code></li>
+                <li>Select the tunnel named "<strong style="color: {text_color};">{tunnel_name}</strong>" from the list.</li>
             </ol>
         </div>
+    </div>
     """
     display(HTML(html))
 
@@ -209,9 +274,81 @@ def login(provider: str = "github") -> bool:
         return False
 
 
+def configure_git(
+    git_user_name: Optional[str] = None,
+    git_user_email: Optional[str] = None,
+):
+    """
+    Configures global Git user name and email using the provided values.
+
+    Attempts to set the global Git configuration for user.name and user.email
+    using the `git config --global` command. Logs the outcome of each operation,
+    including any errors encountered (such as missing git command or subprocess errors).
+    If configuration fails, a warning is logged to indicate that manual setup may be required.
+
+    Args:
+        git_user_name (Optional[str]): The Git user name to set globally. If None, user.name is not changed.
+        git_user_email (Optional[str]): The Git user email to set globally. If None, user.email is not changed.
+
+    Logs:
+        - Info messages for attempted and successful configuration.
+        - Warning messages for failures or missing git command.
+        - Error messages for unexpected exceptions.
+    """
+    git_configured = True  # Assume success unless proven otherwise
+    if git_user_name:
+        logging.info(f"Attempting to set git global user.name='{git_user_name}'...")
+        try:
+            subprocess.run(
+                ["git", "config", "--global", "user.name", git_user_name],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            logging.info("Successfully set git global user.name.")
+        except FileNotFoundError:
+            logging.warning("git command not found. Cannot configure git user.name.")
+            git_configured = False
+        except subprocess.CalledProcessError as e:
+            logging.warning(f"Failed to set git user.name. Error: {e.stderr.strip()}")
+            git_configured = False
+        except Exception as e:
+            logging.error(f"Unexpected error setting git user.name: {e}")
+            git_configured = False
+
+    if git_user_email:
+        logging.info(f"Attempting to set git global user.email='{git_user_email}'...")
+        try:
+            subprocess.run(
+                ["git", "config", "--global", "user.email", git_user_email],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            logging.info("Successfully set git global user.email.")
+        except FileNotFoundError:
+            # Only warn if not already warned above
+            if git_configured:
+                logging.warning(
+                    "git command not found. Cannot configure git user.email."
+                )
+            git_configured = False
+        except subprocess.CalledProcessError as e:
+            logging.warning(f"Failed to set git user.email. Error: {e.stderr.strip()}")
+            git_configured = False
+        except Exception as e:
+            logging.error(f"Unexpected error setting git user.email: {e}")
+            git_configured = False
+
+    if not git_configured and (git_user_name or git_user_email):
+        logging.warning("Git configuration failed. Commits might require manual setup.")
+
+
 def connect(
-    tunnel_name: str = "colab",
+    name: str = "colab",
     extensions: Optional[List[str]] = None,
+    git_user_name: Optional[str] = None,
+    git_user_email: Optional[str] = None,
 ) -> Optional[subprocess.Popen]:
     """
     Establishes a VS Code tunnel connection using the VS Code CLI.
@@ -221,7 +358,7 @@ def connect(
     If successful, it detects and displays the tunnel URL for remote access.
 
     Args:
-        tunnel_name (str): The name to assign to the tunnel. Defaults to "colab".
+        name (str): The name to assign to the tunnel. Defaults to "colab".
         extensions (list or None): A list of VS Code extension identifiers to install before starting the tunnel.
 
     Returns:
@@ -232,9 +369,11 @@ def connect(
         logging.error("VS Code CLI not available, cannot start tunnel.")
         return None
 
+    configure_git(git_user_name, git_user_email)
+
     exts = define_extensions(extensions)
     ext_args = " ".join(f"--install-extension {e}" for e in exts)
-    cmd = f"./code tunnel --accept-server-license-terms --name {tunnel_name} {ext_args}"
+    cmd = f"./code tunnel --accept-server-license-terms --name {name} {ext_args}"
 
     try:
         proc = subprocess.Popen(
@@ -255,7 +394,7 @@ def connect(
                 logging.debug(line.strip())  # Log tunnel output line
                 m = url_re.search(line)
                 if m:
-                    display_vscode_connection_options(m.group(0), tunnel_name)
+                    display_vscode_connection_options(m.group(0), name)
                     return proc  # Return process only if URL is found
 
         # If loop finishes without finding URL (timeout or process ended)
