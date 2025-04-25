@@ -301,6 +301,9 @@ def configure_git(
         return
 
     if not git_user_name and not git_user_email:
+        logging.info(
+            "No git_user_name or git_user_email provided. Skipping git configuration."
+        )
         return  # Nothing to configure
 
     git_configured = True  # Assume success unless proven otherwise
@@ -309,34 +312,19 @@ def configure_git(
             f"Attempting to set git global user.name='{git_user_name}' and user.email='{git_user_email}'..."
         )
         subprocess.run(
-            ["git", "config", "--global", "user.name", git_user_name],
-            check=True,
-            capture_output=True,
-            text=True,
+            ["git", "config", "--global", "user.name", git_user_name], check=True
         )
         subprocess.run(
-            ["git", "config", "--global", "user.email", git_user_email],
-            check=True,
-            capture_output=True,
-            text=True,
+            ["git", "config", "--global", "user.email", git_user_email], check=True
         )
-        logging.info("Successfully set git global user.name and user.email.")
     except FileNotFoundError:
-        logging.warning(
-            "git command not found. Cannot configure git user.name and user.email."
-        )
-        git_configured = False
+        logging.warning("git command not found. Skipping git configuration.")
+        logging.error("Git configuration failed.")
     except subprocess.CalledProcessError as e:
-        logging.warning(
-            f"Failed to set git user.name or user.email. Error: {e.stderr.strip()}"
-        )
-        git_configured = False
-    except Exception as e:
-        logging.error(f"Unexpected error setting git user.name or user.email: {e}")
-        git_configured = False
-
-    if not git_configured:
-        logging.warning("Git configuration failed. Commits might require manual setup.")
+        logging.error("Failed to set git user.name or user.email")
+        logging.error("Git configuration failed: %s", e)
+        if hasattr(e, "stderr") and e.stderr:
+            logging.error("stderr: %s", e.stderr)
 
 
 def connect(

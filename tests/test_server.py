@@ -29,8 +29,11 @@ def test_download_vscode_cli_forces_download_if_force(monkeypatch):
     called = {}
 
     def fake_run(*args, **kwargs):
-        called["ran"] = True
-        return mock.Mock()
+        # Check if it's the curl or tar command
+        if "curl" in args[0] or "tar" in args[0]:
+            called["ran"] = True
+            return mock.Mock()
+        raise ValueError(f"Unexpected command: {args[0]}")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
     # After extraction, "./code" should exist
@@ -95,6 +98,7 @@ def test_login_success(monkeypatch):
     mock_proc.stdout.readline.side_effect = lambda: lines.pop(0) if lines else ""
     poll_results = [None, None, 0]
     mock_proc.poll.side_effect = lambda: poll_results.pop(0) if poll_results else 0
+    mock_proc.stdout is not None  # Ensure stdout is not None
     called = {}
 
     def fake_display(url, code):
@@ -103,7 +107,7 @@ def test_login_success(monkeypatch):
 
     monkeypatch.setattr(server, "display_github_auth_link", fake_display)
     monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: mock_proc)
-    result = server.login()
+    result = server.login()  # Use default provider 'github'
     assert result is True
     assert called["url"].startswith("https://github.com")
     assert called["code"] == "ABCD-1234"
@@ -115,6 +119,7 @@ def test_login_timeout(monkeypatch):
     # Simulate never finding URL/code, process never ends, timeout after 60s
     mock_proc.stdout.readline.side_effect = ["no url here\n"] * 5
     mock_proc.poll.side_effect = [None] * 10  # Always running
+    mock_proc.stdout is not None
     monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: mock_proc)
     # Patch time to simulate timeout
     times = [0, 10, 20, 30, 40, 61]
@@ -132,6 +137,7 @@ def test_login_process_ends_early(monkeypatch):
     poll_results = [None, 0]
     mock_proc.poll.side_effect = lambda: poll_results.pop(0) if poll_results else 0
     mock_proc.stdout.read.return_value = "final output"
+    mock_proc.stdout is not None
     monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: mock_proc)
     result = server.login()
     assert result is False
@@ -180,6 +186,22 @@ def test_login_exception(monkeypatch):
     assert result is False
 
 
+def test_login_stdout_is_none(monkeypatch):
+    monkeypatch.setattr(server, "download_vscode_cli", lambda: True)
+    mock_proc = mock.Mock()
+    mock_proc.stdout = None
+    called = {}
+
+    def fake_terminate():
+        called["terminated"] = True
+
+    mock_proc.terminate = fake_terminate
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: mock_proc)
+    result = server.login()
+    assert result is False
+    assert called.get("terminated", False)
+
+
 def test_connect_returns_none_if_cli_not_available(monkeypatch):
     monkeypatch.setattr(server, "download_vscode_cli", lambda: False)
     result = server.connect()
@@ -188,8 +210,8 @@ def test_connect_returns_none_if_cli_not_available(monkeypatch):
 
 def test_connect_success(monkeypatch):
     monkeypatch.setattr(server, "download_vscode_cli", lambda: True)
-    # Simulate extensions
-    monkeypatch.setattr(server, "define_extensions", lambda exts=None: ["ext1", "ext2"])
+    # Mock configure_git to do nothing
+    monkeypatch.setattr(server, "configure_git", lambda *a, **k: None)
     # Simulate process output with tunnel URL
     mock_proc = mock.Mock()
     lines = [
@@ -201,22 +223,70 @@ def test_connect_success(monkeypatch):
     mock_proc.poll.side_effect = [None, None, 0]
     mock_proc.stdout is not None
     called = {}
+    popen_args = {}
 
     def fake_display(url, name):
         called["url"] = url
         called["name"] = name
 
+    def fake_popen(*args, **kwargs):
+        popen_args["cmd"] = args[0]  # Capture the command
+        return mock_proc
+
     monkeypatch.setattr(server, "display_vscode_connection_options", fake_display)
-    monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: mock_proc)
-    result = server.connect(name="mytunnel", extensions=["ext1"])
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+
+    # Call connect with specific extensions and name
+    result = server.connect(
+        name="mytunnel",
+        extensions=["ext1", "ext2"],
+        include_default_extensions=False,
+    )
+
     assert result == mock_proc
     assert called["url"].startswith("https://vscode.dev/tunnel/")
     assert called["name"] == "mytunnel"
+    # Check that the command includes the correct name and extensions
+    assert "--name mytunnel" in popen_args["cmd"]
+    assert "--install-extension ext1" in popen_args["cmd"]
+    assert "--install-extension ext2" in popen_args["cmd"]
+    # Check that default extensions are NOT included
+    assert "ms-python.python" not in popen_args["cmd"]
+
+
+def test_connect_success_with_defaults(monkeypatch):
+    monkeypatch.setattr(server, "download_vscode_cli", lambda: True)
+    monkeypatch.setattr(server, "configure_git", lambda *a, **k: None)
+    mock_proc = mock.Mock()
+    lines = [
+        "Tunnel ready at https://vscode.dev/tunnel/abc/def\n",
+    ]
+    mock_proc.stdout.readline.side_effect = lambda: lines.pop(0) if lines else ""
+    mock_proc.poll.side_effect = [None, 0]
+    mock_proc.stdout is not None
+    popen_args = {}
+
+    def fake_popen(*args, **kwargs):
+        popen_args["cmd"] = args[0]
+        return mock_proc
+
+    monkeypatch.setattr(
+        server, "display_vscode_connection_options", lambda *a, **k: None
+    )
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+
+    result = server.connect()  # Use defaults
+
+    assert result == mock_proc
+    assert "--name colab" in popen_args["cmd"]
+    # Check that default extensions ARE included
+    assert "ms-python.python" in popen_args["cmd"]
+    assert "ms-toolsai.jupyter" in popen_args["cmd"]
 
 
 def test_connect_timeout(monkeypatch):
     monkeypatch.setattr(server, "download_vscode_cli", lambda: True)
-    monkeypatch.setattr(server, "define_extensions", lambda exts=None: ["ext1"])
+    monkeypatch.setattr(server, "configure_git", lambda *a, **k: None)
     mock_proc = mock.Mock()
     mock_proc.stdout.readline.side_effect = ["no url here\n"] * 5
     mock_proc.poll.side_effect = [None] * 10  # Always running
@@ -232,7 +302,7 @@ def test_connect_timeout(monkeypatch):
 
 def test_connect_process_ends_early(monkeypatch):
     monkeypatch.setattr(server, "download_vscode_cli", lambda: True)
-    monkeypatch.setattr(server, "define_extensions", lambda exts=None: ["ext1"])
+    monkeypatch.setattr(server, "configure_git", lambda *a, **k: None)
     mock_proc = mock.Mock()
     mock_proc.stdout.readline.side_effect = ["no url here\n", ""]
     poll_results = [None, 0]
@@ -250,7 +320,7 @@ def test_connect_process_ends_early(monkeypatch):
 
 def test_connect_process_ends_early_with_stdout(monkeypatch):
     monkeypatch.setattr(server, "download_vscode_cli", lambda: True)
-    monkeypatch.setattr(server, "define_extensions", lambda exts=None: ["ext1"])
+    monkeypatch.setattr(server, "configure_git", lambda *a, **k: None)
 
     # Simulate process ends before URL is found, with stdout not None
     class DummyStdout:
@@ -283,7 +353,7 @@ def test_connect_process_ends_early_with_stdout(monkeypatch):
 
 def test_connect_stdout_is_none(monkeypatch):
     monkeypatch.setattr(server, "download_vscode_cli", lambda: True)
-    monkeypatch.setattr(server, "define_extensions", lambda exts=None: ["ext1"])
+    monkeypatch.setattr(server, "configure_git", lambda *a, **k: None)
     mock_proc = mock.Mock()
     mock_proc.stdout = None
     called = {}
@@ -300,7 +370,7 @@ def test_connect_stdout_is_none(monkeypatch):
 
 def test_connect_exception(monkeypatch):
     monkeypatch.setattr(server, "download_vscode_cli", lambda: True)
-    monkeypatch.setattr(server, "define_extensions", lambda exts=None: ["ext1"])
+    monkeypatch.setattr(server, "configure_git", lambda *a, **k: None)
 
     def fake_popen(*a, **k):
         raise Exception("fail")
@@ -308,16 +378,92 @@ def test_connect_exception(monkeypatch):
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
     result = server.connect()
     assert result is None
-    result = server.connect()
-    assert result is None
 
 
-def test_define_extensions_default():
-    # Should return the default list when called with no arguments
-    result = server.define_extensions()
-    assert isinstance(result, list)
-    assert "ms-python.python" in result
-    assert "ms-toolsai.jupyter" in result
+def test_connect_calls_configure_git(monkeypatch):
+    monkeypatch.setattr(server, "download_vscode_cli", lambda: True)
+    # Mock Popen to return a dummy process that ends immediately
+    mock_proc = mock.Mock()
+    mock_proc.stdout.readline.return_value = ""
+    mock_proc.poll.return_value = 0
+    mock_proc.stdout.read.return_value = ""
+    mock_proc.stdout is not None
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: mock_proc)
+
+    called_configure_git = {}
+
+    def fake_configure_git(name, email):
+        called_configure_git["name"] = name
+        called_configure_git["email"] = email
+
+    monkeypatch.setattr(server, "configure_git", fake_configure_git)
+
+    server.connect(git_user_name="Test User", git_user_email="test@example.com")
+
+    assert called_configure_git["name"] == "Test User"
+    assert called_configure_git["email"] == "test@example.com"
+
+
+# --- Tests for configure_git ---
+
+
+def test_configure_git_success(monkeypatch):
+    run_calls = []
+
+    def fake_run(*args, **kwargs):
+        run_calls.append(args[0])
+        return mock.Mock()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    server.configure_git("Test User", "test@example.com")
+    assert len(run_calls) == 2
+    assert run_calls[0] == ["git", "config", "--global", "user.name", "Test User"]
+    assert run_calls[1] == [
+        "git",
+        "config",
+        "--global",
+        "user.email",
+        "test@example.com",
+    ]
+
+
+def test_configure_git_skipped_if_only_name(monkeypatch, caplog):
+    run_calls = []
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: run_calls.append(a))
+    server.configure_git(git_user_name="Test User")
+    assert len(run_calls) == 0
+    assert "Skipping git configuration" in caplog.text
+
+
+def test_configure_git_skipped_if_only_email(monkeypatch, caplog):
+    run_calls = []
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: run_calls.append(a))
+    server.configure_git(git_user_email="test@example.com")
+    assert len(run_calls) == 0
+    assert "Skipping git configuration" in caplog.text
+
+
+def test_configure_git_skipped_if_none(monkeypatch, caplog):
+    run_calls = []
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: run_calls.append(a))
+    server.configure_git()
+    assert len(run_calls) == 0
+    assert "Skipping git configuration" not in caplog.text  # No warning if both None
+
+
+def test_configure_git_file_not_found(monkeypatch, caplog):
+    def fake_run(*args, **kwargs):
+        if args[0][0] == "git":
+            raise FileNotFoundError("git not found")
+        return mock.Mock()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    server.configure_git("Test User", "test@example.com")
+    assert "git command not found" in caplog.text
+    assert "Git configuration failed" in caplog.text
+
+
+# --- Tests for display functions (unchanged logic, just ensure they run) ---
 
 
 def test_display_github_auth_link(monkeypatch):
@@ -360,19 +506,3 @@ def test_display_vscode_connection_options(monkeypatch):
     assert tunnel_url in called["html"]
     assert tunnel_name in called["html"]
     assert isinstance(called["displayed"], DummyHTML)
-
-
-def test_login_stdout_is_none(monkeypatch):
-    monkeypatch.setattr(server, "download_vscode_cli", lambda: True)
-    mock_proc = mock.Mock()
-    mock_proc.stdout = None
-    called = {}
-
-    def fake_terminate():
-        called["terminated"] = True
-
-    mock_proc.terminate = fake_terminate
-    monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: mock_proc)
-    result = server.login()
-    assert result is False
-    assert called.get("terminated", False)
