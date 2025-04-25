@@ -7,18 +7,21 @@
 
 ![Logo](images/vscode_colab.png)
 
-**vscode-colab** is a Python library that enables you to connect your Google Colab or Kaggle notebooks to your local Visual Studio Code (VS Code) editor using [VS Code Remote Tunnels](https://code.visualstudio.com/docs/remote/tunnels). This integration allows you to leverage the full capabilities of VS Code while utilizing the computational resources of cloud-based notebooks.
+**vscode-colab** is a Python library that seamlessly connects your Google Colab or Kaggle notebooks to Visual Studio Code (VS Code) using [VS Code Remote Tunnels](https://code.visualstudio.com/docs/remote/tunnels). It allows you to leverage VS Code's powerful editor and extensions while using the computational resources of cloud-based notebooks.
 
-## 🚀 Features
+## 🚀 Key Features
 
-- Seamless connection between Colab/Kaggle notebooks and local VS Code editor.
-- Utilizes official VS Code Remote Tunnels for secure and efficient connectivity.
-- Minimal setup with intuitive `login()` and `connect()` functions.
-- Interactive UI elements within notebooks for enhanced user experience.
+- **Secure, Official Integration:** Uses official VS Code Remote Tunnels for secure, stable connections.
+- **GitHub Integration:** Automatically authenticated via GitHub, enabling seamless cloning and pushing to private repositories.
+- **Easy Git Configuration:** Optionally configure global Git identity (`user.name` and `user.email`) directly from the library.
+- **Extension Support:** Installs essential Python and Jupyter extensions by default; easily customize by passing additional extensions.
+- **Minimal Setup:** Simple and intuitive `login()` and `connect()` functions.
+- **Cross-Platform Compatibility:** Fully supports both Google Colab and Kaggle notebooks.
+- **Interactive UI:** Integrated UI within notebooks to manage authentication and tunnel connections easily.
 
 ## 🧰 Installation
 
-Install the package via pip:
+Install the package using pip:
 
 ```shell
 pip install vscode-colab
@@ -30,15 +33,15 @@ pip install vscode-colab
 
 ### 1. Import the Library
 
-In your Colab or Kaggle notebook, import the `vscode_colab` module:
+In your Colab or Kaggle notebook:
 
 ```python
 import vscode_colab
 ```
 
-### 2. Authenticate with VS Code
+### 2. Authenticate with GitHub
 
-Run the `login()` function to authenticate your session:
+Authenticate using GitHub credentials:
 
 ```python
 vscode_colab.login()
@@ -46,41 +49,78 @@ vscode_colab.login()
 
 ![Login](images/login.png)
 
-This will display a code and a URL. Click the URL, enter the code, and sign in with your GitHub or Microsoft account to authorize the connection.
+Follow the displayed instructions to authorize the connection.
 
-### 3. Establish the Tunnel
+### 3. Establish the Tunnel and Configure Git (Optional)
 
-After successful authentication, initiate the tunnel:
+To start the VS Code tunnel, optionally configure Git:
 
 ```python
-vscode_colab.connect()
+vscode_colab.connect(
+    name="my-tunnel",
+    git_user_name="Your Name",
+    git_user_email="you@example.com"
+)
 ```
 
-![Login](images/connect.png)
+![Connect](images/connect.png)
 
-This will start the VS Code tunnel, allowing you to connect your local VS Code editor to the Colab/Kaggle environment.
+- By default, VS Code Python and Jupyter extensions are installed.
+- You can customize the extensions to be installed:
+
+```python
+vscode_colab.connect(
+    extensions=[
+      "ms-python.python", 
+      "ms-toolsai.jupyter", 
+      "ms-vscode.cpptools",
+    ]
+)
+```
 
 ### 4. Connect via VS Code
 
-In your local VS Code editor:
+In your local VS Code:
 
-1. Open the Command Palette (`Ctrl+Shift+P` or `Cmd+Shift+P`).
-2. Select `Remote Tunnels: Connect to Tunnel...`.
-3. Choose the tunnel corresponding to your notebook session.
+1. Ensure the [Remote Tunnels extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode.remote-server) is installed.
+2. Sign in with the same GitHub account used in the notebook.
+3. Open Command Palette (`Ctrl+Shift+P` or `Cmd+Shift+P`).
+4. Run `Remote Tunnels: Connect to Tunnel...` and select your notebook's tunnel.
 
-You are now connected to your Colab/Kaggle environment through VS Code!
+You're now seamlessly connected to Colab/Kaggle through VS Code!
 
-## ⚠️ Notes
+## 🧩 Default Extensions Installed
 
-- The `connect()` function will block the notebook cell execution as it maintains the tunnel connection. To terminate the tunnel, you can:
-  - Interrupt the cell execution.
-  - Close the notebook tab.
-  - Shut down the notebook runtime.
-- Ensure that your local VS Code editor has the [Remote Tunnels extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode.remote-server) installed.
+By default, `vscode-colab` installs the following Visual Studio Code extensions to enhance your Python and Jupyter development experience:
+
+- **[Python Path](https://marketplace.visualstudio.com/items?itemName=mgesbert.python-path)**: Facilitates generating internal import statements within a Python project.
+
+- **[Black Formatter](https://marketplace.visualstudio.com/items?itemName=ms-python.black-formatter)**: Provides code formatting support for Python files using the Black code formatter.
+
+- **[isort](https://marketplace.visualstudio.com/items?itemName=ms-python.isort)**: Offers import sorting features to improve the readability of your Python code.
+
+- **[Python](https://marketplace.visualstudio.com/items?itemName=ms-python.python)**: Adds rich support for the Python language, including IntelliSense, linting, debugging, and more.
+
+- **[Pylance](https://marketplace.visualstudio.com/items?itemName=ms-python.vscode-pylance)**: Enhances Python language support with fast, feature-rich language services powered by Pyright.
+
+- **[Debugpy](https://marketplace.visualstudio.com/items?itemName=ms-python.debugpy)**: Enables debugging capabilities for Python applications within VS Code.
+
+- **[Jupyter](https://marketplace.visualstudio.com/items?itemName=ms-toolsai.jupyter)**: Provides support for Jupyter notebooks, including interactive programming and computing features.
+
+- **[Jupyter Keymap](https://marketplace.visualstudio.com/items?itemName=ms-toolsai.jupyter-keymap)**: Aligns notebook keybindings in VS Code with those in Jupyter Notebook for a consistent experience.
+
+- **[Jupyter Notebook Renderers](https://marketplace.visualstudio.com/items?itemName=ms-toolsai.jupyter-renderers)**: Provides renderers for outputs of Jupyter Notebooks, supporting various output formats.
+
+- **[TensorBoard](https://marketplace.visualstudio.com/items?itemName=ms-toolsai.tensorboard)**: Allows launching and viewing TensorBoards directly within VS Code.
+
+## ⚠️ Important Notes
+
+- **Notebook Cell Blocking:** The `connect()` function maintains an active tunnel connection and will block notebook cell execution. Interrupting the cell or closing the notebook tab will terminate the connection.
+- **Kaggle Clipboard Limitation:** On Kaggle, the copy-to-clipboard button will display "Copy Failed" in red due to sandbox restrictions. Manually select and copy the displayed code.
 
 ## 🧪 Testing
 
-To run the test suite:
+To run tests:
 
 ```bash
 git clone https://github.com/EssenceSentry/vscode-colab.git
@@ -91,12 +131,14 @@ pytest
 
 ## 🛠️ Development
 
-The project uses `setup.cfg` for configuration and `requirements-dev.txt` for development dependencies. Contributions are welcome!
+- Configuration via `setup.cfg`
+- Development dependencies listed in `requirements-dev.txt`
+- Contributions welcome—open a GitHub issue or PR!
 
 ## 📄 License
 
-This project is licensed under the MIT License. See the [LICENSE](https://github.com/EssenceSentry/vscode-colab/blob/main/LICENSE) file for details.
+MIT License. See [LICENSE](https://github.com/EssenceSentry/vscode-colab/blob/main/LICENSE).
 
 ## 🙏 Acknowledgments
 
-Special thanks to the developers of [VS Code Remote Tunnels](https://code.visualstudio.com/docs/remote/tunnels) for enabling seamless remote development experiences.
+Special thanks to the developers behind [VS Code Remote Tunnels](https://code.visualstudio.com/docs/remote/tunnels) for enabling this seamless remote development experience.
