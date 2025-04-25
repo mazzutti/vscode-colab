@@ -69,13 +69,12 @@ vscode_colab.connect(
 - You can customize the extensions to be installed:
 
 ```python
-vscode_colab.connect(
-    extensions=[
-      "ms-python.python", 
-      "ms-toolsai.jupyter", 
-      "ms-vscode.cpptools",
-    ]
-)
+# Add C++ extensions in addition to default ones
+vscode_colab.connect(extensions=["ms-vscode.cpptools"])
+
+# Completely override extensions (only install C++ support)
+vscode_colab.connect(extensions=["ms-vscode.cpptools"], include_default_extensions=False)
+
 ```
 
 ### 4. Connect via VS Code
