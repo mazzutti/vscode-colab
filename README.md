@@ -15,6 +15,8 @@
 - **GitHub Integration:** Automatically authenticated via GitHub, enabling seamless cloning and pushing to private repositories.
 - **Easy Git Configuration:** Optionally configure global Git identity (`user.name` and `user.email`) directly from the library.
 - **Extension Support:** Installs essential Python and Jupyter extensions by default; easily customize by passing additional extensions.
+- **Python Environment Management:** Optionally set up a specific Python version for your project using `pyenv`. (Note: Installing a new Python version via pyenv can take approximately 5 minutes).
+- **Project Scaffolding:** Optionally create a new project directory with a Python virtual environment.
 - **Minimal Setup:** Simple and intuitive `login()` and `connect()` functions.
 - **Cross-Platform Compatibility:** Fully supports both Google Colab and Kaggle notebooks.
 - **Interactive UI:** Integrated UI within notebooks to manage authentication and tunnel connections easily.
@@ -53,13 +55,15 @@ Follow the displayed instructions to authorize the connection.
 
 ### 3. Establish the Tunnel and Configure Git (Optional)
 
-To start the VS Code tunnel, optionally configure Git:
+To start the VS Code tunnel, optionally configure Git, set up a Python version, or create a new project:
 
 ```python
 vscode_colab.connect(
     name="my-tunnel",
     git_user_name="Your Name",
-    git_user_email="you@example.com"
+    git_user_email="you@example.com",
+    setup_python_version="3.13",  # Optional: Specify Python version to install with pyenv
+    create_new_project="my_new_project" # Optional: Create a new project directory
 )
 ```
 
@@ -75,6 +79,15 @@ vscode_colab.connect(extensions=["ms-vscode.cpptools"])
 # Completely override extensions (only install C++ support)
 vscode_colab.connect(extensions=["ms-vscode.cpptools"], include_default_extensions=False)
 
+# Setup a specific Python version and create a new project
+# Note: Installing Python with pyenv can take ~5 minutes.
+vscode_colab.connect(
+    name="py-project-tunnel",
+    setup_python_version="3.9",
+    create_new_project="data_analysis_project",
+    new_project_base_path="~/projects", # Optional: specify where to create the project
+    venv_name_for_project=".venv-data" # Optional: specify venv name
+)
 ```
 
 ### 4. Connect via VS Code
