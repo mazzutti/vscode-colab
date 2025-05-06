@@ -1,4 +1,3 @@
-import logging
 import os
 import re
 import subprocess
@@ -7,9 +6,11 @@ from typing import List, Optional
 
 from IPython.display import HTML, display
 
-logging.basicConfig(
-    level=logging.WARNING,
-    format="%(asctime)s - %(levelname)s - %(message)s",
+from vscode_colab.logger_config import log as logger
+from vscode_colab.setup_env import (
+    configure_git,
+    setup_project_directory,
+    setup_pyenv_and_python_version,
 )
 
 DEFAULT_EXTENSIONS = {
@@ -28,21 +29,13 @@ DEFAULT_EXTENSIONS = {
 
 def download_vscode_cli(force_download: bool = False) -> bool:
     """
-    Downloads and extracts the Visual Studio Code CLI if it does not already exist in the current directory.
-
-    Args:
-        force_download (bool): If True, forces re-download and extraction even if the CLI already exists.
-
-    Returns:
-        bool: True if the CLI is successfully downloaded and extracted or already exists, False otherwise.
-
-    Side Effects:
-        - Downloads the VS Code CLI tarball using curl.
-        - Extracts the tarball using tar.
-        - Prints error messages to stdout if download or extraction fails.
+    Downloads and extracts the Visual Studio Code CLI if it does not already exist.
+    (Content of this function remains the same as in the original file)
     """
     if os.path.exists("./code") and not force_download:
+        logger.info("VS Code CLI already exists. Skipping download.")
         return True
+    logger.info("Downloading VS Code CLI...")
     try:
         subprocess.run(
             "curl -Lk 'https://code.visualstudio.com/sha/download?build=stable&os=cli-alpine-x64' --output 'vscode_cli.tar.gz'",
@@ -51,6 +44,7 @@ def download_vscode_cli(force_download: bool = False) -> bool:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
+        logger.info("VS Code CLI tarball downloaded. Extracting...")
         subprocess.run(
             "tar -xf vscode_cli.tar.gz",
             shell=True,
@@ -59,11 +53,23 @@ def download_vscode_cli(force_download: bool = False) -> bool:
             stderr=subprocess.PIPE,
         )
         if not os.path.exists("./code"):
-            logging.error("Failed to extract VS Code CLI properly.")
+            logger.error(
+                "Failed to extract VS Code CLI properly. './code' directory not found after extraction."
+            )
             return False
+        logger.info("VS Code CLI extracted successfully to './code'.")
         return True
     except subprocess.CalledProcessError as e:
-        logging.error(f"Error during VS Code download or extraction: {e}")
+        logger.error(f"Error during VS Code download or extraction: {e}")
+        if e.stdout:
+            logger.error(f"Stdout: {e.stdout.decode(errors='ignore')}")
+        if e.stderr:
+            logger.error(f"Stderr: {e.stderr.decode(errors='ignore')}")
+        return False
+    except Exception as e:
+        logger.error(
+            f"An unexpected error occurred during VS Code CLI download/extraction: {e}"
+        )
         return False
 
 
@@ -73,17 +79,9 @@ def display_github_auth_link(
 ) -> None:
     """
     Displays an HTML block in IPython with the GitHub authentication link and code.
-    Dynamically adds a copy button only if clipboard access is likely available,
-    and ensures the code text is visible. Simplifies copy feedback.
-
-    Args:
-        url (str): The GitHub device authentication URL.
-        code (str): The user code to enter on GitHub.
+    (Content of this function remains the same as in the original file)
     """
-    # Ensure the code string is properly escaped for use in JavaScript strings
-    # Escape backslashes first, then double quotes
     escaped_code = code.replace("\\", "\\\\").replace('"', '\\"')
-
     html = f"""
     <div style="padding: 15px; background-color: #f0f7ff; border-radius: 8px; margin: 15px 0; font-family: Arial, sans-serif; border: 1px solid #c8e1ff; line-height: 1.6;">
         <h3 style="margin-top: 0; color: #0366d6; font-size: 18px;">GitHub Authentication Required</h3>
@@ -100,63 +98,38 @@ def display_github_auth_link(
         <p id="copy-fallback-note" style="font-size: small; color: #586069; margin-top: 10px; display: none;">
             Please select the code manually and copy it.
         </p>
-
         <script>
             (function() {{
                 const code = "{escaped_code}";
                 const codeContainer = document.getElementById('code-container');
                 const fallbackNote = document.getElementById('copy-fallback-note');
-
-                // Function to attempt copying
                 function attemptCopy() {{
                     const copyButton = document.getElementById('dynamicCopyButton');
                     if (!copyButton) return;
-
                     navigator.clipboard.writeText(code).then(() => {{
                         copyButton.textContent = 'Copied!';
-                        copyButton.style.backgroundColor = '#dff0d8';
-                        copyButton.style.borderColor = '#d6e9c6';
-                        copyButton.style.color = '#3c763d';
-
+                        copyButton.style.backgroundColor = '#dff0d8'; copyButton.style.borderColor = '#d6e9c6'; copyButton.style.color = '#3c763d';
                         setTimeout(() => {{
                             copyButton.textContent = 'Copy';
-                            copyButton.style.backgroundColor = '#f6f8fa';
-                            copyButton.style.borderColor = '#d1d5da';
-                            copyButton.style.color = '';
+                            copyButton.style.backgroundColor = '#f6f8fa'; copyButton.style.borderColor = '#d1d5da'; copyButton.style.color = '';
                         }}, 2500);
-
                     }}).catch(err => {{
                         console.error('Failed to copy code automatically: ', err);
-                        copyButton.textContent = 'Copy Failed';
-                        copyButton.disabled = true;
-                        copyButton.style.backgroundColor = '#f2dede';
-                        copyButton.style.borderColor = '#ebccd1';
-                        copyButton.style.color = '#a94442';
+                        copyButton.textContent = 'Copy Failed'; copyButton.disabled = true;
+                        copyButton.style.backgroundColor = '#f2dede'; copyButton.style.borderColor = '#ebccd1'; copyButton.style.color = '#a94442';
                         fallbackNote.style.display = 'block';
                     }});
                 }}
-
-                // Check if Clipboard API is available and likely usable
                 if (navigator.clipboard && navigator.clipboard.writeText) {{
-                    // Create and add the button dynamically
                     const button = document.createElement('button');
-                    button.id = 'dynamicCopyButton';
-                    button.textContent = 'Copy';
-                    button.style.backgroundColor = '#f6f8fa';
-                    button.style.border = '1px solid #d1d5da';
-                    button.style.borderRadius = '6px';
-                    button.style.padding = '6px 12px';
-                    button.style.cursor = 'pointer';
-                    button.style.fontSize = '14px';
-                    button.style.whiteSpace = 'nowrap';
-                    button.style.marginLeft = '10px'; // Add some space if button appears
-                    button.onclick = attemptCopy; // Assign the copy function
-
-                    // Append the button to the container
+                    button.id = 'dynamicCopyButton'; button.textContent = 'Copy';
+                    button.style.backgroundColor = '#f6f8fa'; button.style.border = '1px solid #d1d5da';
+                    button.style.borderRadius = '6px'; button.style.padding = '6px 12px';
+                    button.style.cursor = 'pointer'; button.style.fontSize = '14px';
+                    button.style.whiteSpace = 'nowrap'; button.style.marginLeft = '10px';
+                    button.onclick = attemptCopy;
                     codeContainer.appendChild(button);
-
                 }} else {{
-                    // Clipboard API not available, ensure fallback note is visible
                     fallbackNote.style.display = 'block';
                 }}
             }})();
@@ -170,13 +143,15 @@ def display_vscode_connection_options(
     tunnel_url: str,
     tunnel_name: str,
 ) -> None:
+    """
+    Displays an HTML block in IPython with VS Code connection options.
+    (Content of this function remains the same as in the original file)
+    """
     text_color = "#333333"
     html = f"""
     <div style="padding:15px; background:#f0f9f0; border-radius:8px; margin:15px 0; font-family:Arial,sans-serif; border:1px solid #c8e6c9; line-height: 1.6;">
         <h3 style="margin:0 0 15px; color:#2e7d32; font-size: 18px;">✅ VS Code Tunnel Ready!</h3>
-
         <p style="margin-bottom: 15px; color: {text_color};">You can connect in two ways:</p>
-
         <div style="margin-bottom: 15px;">
             <strong style="color: {text_color};">1. Open in Browser:</strong><br>
             <a href="{tunnel_url}" target="_blank"
@@ -184,9 +159,7 @@ def display_vscode_connection_options(
                 Open VS Code Web
             </a>
         </div>
-
         <hr style="border: 0; border-top: 1px solid #c8e6c9; margin: 20px 0;" />
-
         <div style="margin-bottom: 10px; color: {text_color};">
             <strong style="color: {text_color};">2. Connect from Desktop VS Code:</strong>
             <ol style="margin-top: 5px; padding-left: 20px; color: {text_color};">
@@ -205,126 +178,107 @@ def display_vscode_connection_options(
 def login(provider: str = "github") -> bool:
     """
     Attempts to log in to VS Code Tunnel using the specified authentication provider.
-
-    This function ensures the VS Code CLI is available, then initiates the login process
-    using the CLI with the given provider (default is "github"). It monitors the CLI output
-    for a login URL and code, and displays them for user authentication. If successful,
-    returns True; otherwise, prints an error message and returns False.
-
-    Args:
-        provider (str): The authentication provider to use for login (default: "github").
-
-    Returns:
-        bool: True if the login URL and code were detected and displayed, False otherwise.
+    (Content of this function remains the same as in the original file)
     """
     if not download_vscode_cli():
-        logging.error("VS Code CLI not available, cannot perform login.")
+        logger.error("VS Code CLI not available, cannot perform login.")
         return False
 
     cmd = f"./code tunnel user login --provider {provider}"
+    logger.info(f"Initiating VS Code Tunnel login with command: {cmd}")
     try:
         proc = subprocess.Popen(
-            cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+            cmd,
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            universal_newlines=True,
         )
         if proc.stdout is None:
-            logging.error("Failed to get login process stdout.")
+            logger.error("Failed to get login process stdout.")
             proc.terminate()
             return False
 
         url_re = re.compile(r"https?://[^\s]+")
-        code_re = re.compile(r"[A-Z0-9]{4}-[A-Z0-9]{4,}")
+        # More specific regex for GitHub device codes
+        code_re = re.compile(
+            r"([A-Z0-9]{4,8}-[A-Z0-9]{4,8})"
+        )  # Catches codes like ABCD-1234 or longer ones
 
         start = time.time()
-        while proc.poll() is None and time.time() - start < 60:
-            line = proc.stdout.readline()
-            if line:
+        timeout_seconds = 60
+        auth_url_found = None
+        auth_code_found = None
+
+        logger.info(
+            "Monitoring login process output for authentication URL and code..."
+        )
+        for line in iter(proc.stdout.readline, ""):
+            if time.time() - start > timeout_seconds:
+                logger.warning(
+                    f"Login process timed out after {timeout_seconds} seconds."
+                )
+                proc.terminate()
+                return False
+
+            logger.debug(f"Login output: {line.strip()}")
+            if not auth_url_found:
                 um = url_re.search(line)
+                if um and "github.com/login/device" in um.group(
+                    0
+                ):  # Be more specific for auth URL
+                    auth_url_found = um.group(0)
+                    logger.info(
+                        f"Detected potential authentication URL: {auth_url_found}"
+                    )
+
+            if not auth_code_found:
                 cm = code_re.search(line)
-                if um and cm:
-                    display_github_auth_link(um.group(0), cm.group(0))
-                    return True  # Found URL and code
+                if cm:
+                    auth_code_found = cm.group(0)
+                    logger.info(
+                        f"Detected potential authentication code: {auth_code_found}"
+                    )
 
-        # If loop finishes without finding URL/code
-        if proc.poll() is None:  # Process still running, but timeout reached
-            logging.warning(
-                "Couldn't detect login URL and code within the timeout period."
-            )
-            proc.terminate()  # Clean up the process
-        else:  # Process ended before URL/code was detected
-            logging.warning(
-                "Login process ended unexpectedly before URL/code could be detected."
-            )
-            # Optionally read remaining output
-            if proc.stdout:
-                remaining_output = proc.stdout.read()
-                if remaining_output:
-                    logging.debug("Login process output:\n%s", remaining_output)
+            if auth_url_found and auth_code_found:
+                logger.info("Authentication URL and code detected.")
+                display_github_auth_link(auth_url_found, auth_code_found)
+                # Don't return immediately; let the login process complete or be managed by VS Code CLI
+                # The CLI process itself handles the login state.
+                # We just need to display the info.
+                # The original `login` function waited for the process to potentially end,
+                # but for user login, the CLI keeps running until auth or timeout.
+                # We assume the user will complete auth. The CLI should then confirm.
+                # For now, returning True once info is displayed.
+                # The CLI command `tunnel user login` should ideally exit after successful login.
+                # Let's wait for a bit or for a success message if one exists.
+                # For simplicity, we'll assume displaying the link is "success" for this function's purpose.
+                return True  # Assuming displaying info is the goal.
 
-        return False  # URL/code not found
+            if proc.poll() is not None:  # Process ended
+                break
+
+        # If loop finishes (either by readline returning "" or process ending)
+        if proc.poll() is not None:
+            logger.warning("Login process ended.")
+
+        if not (auth_url_found and auth_code_found):
+            logger.error(
+                "Failed to detect GitHub authentication URL and code from CLI output."
+            )
+            if proc.poll() is None:
+                proc.terminate()  # Ensure cleanup if still running
+            return False
+
+        return True  # Should have returned earlier if both found
 
     except Exception as e:
-        logging.error(f"Error during login: {e}")
-        # Ensure process is cleaned up if it exists and an exception occurred
+        logger.error(f"Error during login: {e}")
         if "proc" in locals() and proc.poll() is None:
             proc.terminate()
         return False
-
-
-def configure_git(
-    git_user_name: Optional[str] = None,
-    git_user_email: Optional[str] = None,
-):
-    """
-    Configures global Git user name and email using the provided values.
-
-    Both `git_user_name` and `git_user_email` must be provided together, or neither should be provided.
-    If only one is provided, configuration is skipped and a warning is logged.
-
-    Attempts to set the global Git configuration for user.name and user.email
-    using the `git config --global` command. Logs the outcome of each operation,
-    including any errors encountered (such as missing git command or subprocess errors).
-    If configuration fails, a warning is logged to indicate that manual setup may be required.
-
-    Args:
-        git_user_name (Optional[str]): The Git user name to set globally. Must be provided with git_user_email.
-        git_user_email (Optional[str]): The Git user email to set globally. Must be provided with git_user_name.
-
-    Logs:
-        - Info messages for attempted and successful configuration.
-        - Warning messages for failures, missing git command, or incomplete parameters.
-        - Error messages for unexpected exceptions.
-    """
-    if (git_user_name and not git_user_email) or (git_user_email and not git_user_name):
-        logging.warning(
-            "Both git_user_name and git_user_email must be provided together. Skipping git configuration."
-        )
-        return
-
-    if not git_user_name and not git_user_email:
-        logging.info(
-            "No git_user_name or git_user_email provided. Skipping git configuration."
-        )
-        return  # Nothing to configure
-
-    git_configured = True  # Assume success unless proven otherwise
-    try:
-        logging.info(
-            f"Attempting to set git global user.name='{git_user_name}' and user.email='{git_user_email}'..."
-        )
-        subprocess.run(
-            ["git", "config", "--global", "user.name", git_user_name], check=True
-        )
-        subprocess.run(
-            ["git", "config", "--global", "user.email", git_user_email], check=True
-        )
-    except FileNotFoundError:
-        logging.warning("git command not found. Skipping git configuration.")
-        logging.error("Git configuration failed.")
-    except subprocess.CalledProcessError as e:
-        logging.error("Failed to set git user.name or user.email")
-        logging.error("Git configuration failed: %s", e)
-        if hasattr(e, "stderr") and e.stderr:
-            logging.error("stderr: %s", e.stderr)
 
 
 def connect(
@@ -333,79 +287,165 @@ def connect(
     extensions: Optional[List[str]] = None,
     git_user_name: Optional[str] = None,
     git_user_email: Optional[str] = None,
+    setup_python_version: Optional[str] = None,
+    force_python_reinstall: bool = False,
+    update_pyenv_before_install: bool = True,
+    create_new_project: Optional[str] = None,
+    new_project_base_path: str = ".",
+    venv_name_for_project: str = ".venv",
 ) -> Optional[subprocess.Popen]:
     """
-    Establishes a VS Code tunnel connection using the VS Code CLI.
-
-    This function attempts to start a VS Code tunnel with the specified tunnel name and optional extensions.
-    It ensures the VS Code CLI is available, installs the requested extensions, and launches the tunnel.
-    If successful, it detects and displays the tunnel URL for remote access.
+    Establishes a VS Code tunnel connection, with optional environment setup.
 
     Args:
-        name (str): The name to assign to the tunnel. Defaults to "colab".
-        extensions (list or None): A list of VS Code extension identifiers to install before starting the tunnel.
-        include_default_extensions (bool): Whether to include default extensions in the installation. Defaults to True. If False, only the provided extensions will be installed.
-        git_user_name (str or None): The Git user name to set globally.
-        git_user_email (str or None): The Git user email to set globally. Both must be provided together or the configuration is skipped with a warning.
+        name (str): Name for the VS Code tunnel. Defaults to "colab".
+        include_default_extensions (bool): If True, installs default Python/Jupyter extensions.
+        extensions (Optional[List[str]]): List of additional VS Code extension IDs to install.
+        git_user_name (Optional[str]): Git user name to configure globally.
+        git_user_email (Optional[str]): Git user email to configure globally.
+        setup_python_version (Optional[str]): Python version to install via pyenv (e.g., "3.9.18"). Requires environment_setup.py to be available.
+        force_python_reinstall (bool): If True, forces reinstallation of the pyenv Python version.
+        update_pyenv_before_install (bool): If True, updates pyenv before installing Python. Defaults to True.
+        create_new_project (Optional[str]): If a name is provided, creates a new project directory with this name, initializes git, and sets up a venv. Requires environment_setup.py to be available.
+        new_project_base_path (str): Base path for creating the new project. Defaults to ".".
+        venv_name_for_project (str): Name of the virtual environment directory within the project. Defaults to ".venv".
 
     Returns:
-        subprocess.Popen or None: The process object for the running tunnel if
-        the URL was detected successfully, or None if an error occurred, the
-        CLI is unavailable, or the URL wasn't found in time.
+        Optional[subprocess.Popen]: The Popen object for the tunnel process if successful, None otherwise.
     """
     if not download_vscode_cli():
-        logging.error("VS Code CLI not available, cannot start tunnel.")
+        logger.error("VS Code CLI not available, cannot start tunnel.")
         return None
 
     configure_git(git_user_name, git_user_email)
 
+    python_executable_for_venv = "python3"  # Default Python for creating venv
+    project_path_for_tunnel_cwd = os.getcwd()  # Default CWD for tunnel
+
+    # 1. Setup Python version with pyenv if requested
+    if setup_python_version:
+        logger.info(
+            f"Attempting to set up Python version: {setup_python_version} using pyenv."
+        )
+        pyenv_python_path = setup_pyenv_and_python_version(
+            python_version=setup_python_version,
+            force_reinstall_python=force_python_reinstall,
+            update_pyenv=update_pyenv_before_install,
+        )
+        if pyenv_python_path:
+            python_executable_for_venv = pyenv_python_path
+            logger.info(
+                f"Using pyenv Python '{python_executable_for_venv}' for subsequent venv creation."
+            )
+        else:
+            logger.warning(
+                f"Failed to set up Python version {setup_python_version} with pyenv. Proceeding with default Python '{python_executable_for_venv}' for venv creation if applicable."
+            )
+
+    # 2. Create new project directory if requested
+    if create_new_project:
+        logger.info(
+            f"Attempting to create and set up new project: '{create_new_project}' at '{new_project_base_path}'."
+        )
+        created_project_path = setup_project_directory(
+            project_name=create_new_project,
+            base_path=new_project_base_path,
+            python_executable=python_executable_for_venv,
+            venv_name=venv_name_for_project,
+        )
+        if created_project_path:
+            logger.info(
+                f"Successfully created project at '{created_project_path}'. Tunnel will attempt to use this directory as current working directory."
+            )
+            project_path_for_tunnel_cwd = created_project_path
+        else:
+            logger.warning(
+                f"Failed to create project '{create_new_project}'. Tunnel will start in the default directory: {project_path_for_tunnel_cwd}."
+            )
+
     exts = set(DEFAULT_EXTENSIONS) if include_default_extensions else set()
     if extensions:
         exts.update(extensions)
-    ext_args = " ".join(f"--install-extension {e}" for e in sorted(exts))
-    cmd = f"./code tunnel --accept-server-license-terms --name {name} {ext_args}"
+    ext_args = " ".join(f"--install-extension {e}" for e in sorted(list(exts)))
+
+    # Use a list for Popen for better handling of spaces in names/paths if any
+    cmd_list = ["./code", "tunnel", "--accept-server-license-terms", "--name", name]
+    if ext_args:
+        # Split ext_args into individual extension commands
+        for ext_arg_part in ext_args.split("--install-extension"):
+            ext_id = ext_arg_part.strip()
+            if ext_id:
+                cmd_list.extend(["--install-extension", ext_id])
+
+    cmd_str_for_logging = " ".join(cmd_list)  # For logging purposes
+    logger.info(f"Starting VS Code tunnel with command: {cmd_str_for_logging}")
+    logger.info(f"Tunnel will run with CWD: {project_path_for_tunnel_cwd}")
 
     try:
         proc = subprocess.Popen(
-            cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+            cmd_list,  # Use list of args
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,  # Line buffered
+            universal_newlines=True,  # For text mode
+            cwd=project_path_for_tunnel_cwd,  # Set CWD for the tunnel process
         )
-        # Make sure stdout is available
         if proc.stdout is None:
-            logging.error("Failed to get tunnel process stdout.")
-            proc.terminate()  # Clean up the process
+            logger.error("Failed to get tunnel process stdout.")
+            proc.terminate()
             return None
 
-        url_re = re.compile(r"https://vscode\.dev/tunnel/[\w-]+/[\w-]+")
-        start = time.time()
+        url_re = re.compile(r"https://vscode\.dev/tunnel/[\w-]+(?:/[\w-]+)?")
+        start_time = time.time()
         timeout_seconds = 60
-        while proc.poll() is None and time.time() - start < timeout_seconds:
-            line = proc.stdout.readline()
-            if line:
-                logging.debug(line.strip())  # Log tunnel output line
-                m = url_re.search(line)
-                if m:
-                    display_vscode_connection_options(m.group(0), name)
-                    return proc  # Return process only if URL is found
 
-        # If loop finishes without finding URL (timeout or process ended)
-        if proc.poll() is None:  # Process still running, but timeout reached
-            logging.error(f"Tunnel URL not detected within {timeout_seconds} seconds.")
-            proc.terminate()  # Clean up the process
-            return None
-        else:  # Process ended before URL was detected
-            logging.error(
-                "Tunnel process exited unexpectedly before URL could be detected."
-            )
-            remaining_output = proc.stdout.read()
-            if remaining_output:
-                logging.debug(
-                    "Tunnel output:\n%s", remaining_output
-                )  # Log remaining output as debug
-            return None
+        logger.info("Monitoring tunnel process output for connection URL...")
+        for line in iter(proc.stdout.readline, ""):
+            if time.time() - start_time > timeout_seconds:
+                logger.error(
+                    f"Tunnel URL not detected within {timeout_seconds} seconds. Timing out."
+                )
+                proc.terminate()
+                proc.wait()  # Wait for termination
+                return None
 
+            logger.debug(f"Tunnel output: {line.strip()}")
+            m = url_re.search(line)
+            if m:
+                tunnel_url = m.group(0)
+                logger.info(f"VS Code Tunnel URL detected: {tunnel_url}")
+                display_vscode_connection_options(tunnel_url, name)
+                return proc
+
+            if proc.poll() is not None:  # Process ended prematurely
+                logger.error(
+                    "Tunnel process exited prematurely before URL could be detected."
+                )
+                remaining_output = proc.stdout.read()
+                if remaining_output:
+                    logger.debug(
+                        f"Remaining tunnel output:\n{remaining_output.strip()}'"
+                    )
+                return None
+
+        # If loop finishes because readline returned "" (EOF) and URL not found
+        if proc.poll() is not None:  # Process ended
+            logger.error("Tunnel process ended before URL was detected (EOF reached).")
+        else:  # Should not happen if iter(..., "") is used correctly with timeout
+            logger.error("Tunnel URL not detected (EOF or unknown state).")
+            proc.terminate()
+            proc.wait()
+        return None
+
+    except FileNotFoundError:
+        logger.error(
+            "VS Code CLI ('./code') not found in current directory. Cannot start tunnel."
+        )
+        return None
     except Exception as e:
-        logging.error(f"Error starting tunnel: {e}")
-        # Ensure process is cleaned up if it exists and an exception occurred
+        logger.error(f"Error starting tunnel: {e}")
         if "proc" in locals() and proc.poll() is None:
             proc.terminate()
+            proc.wait()
         return None
