@@ -101,12 +101,6 @@ def configure_git(
         )
         return
 
-    if not git_user_name and not git_user_email:
-        logger.info(
-            "No git_user_name or git_user_email provided. Skipping git configuration."
-        )
-        return
-
     try:
         logger.info(
             f"Attempting to set git global user.name='{git_user_name}' and user.email='{git_user_email}'..."

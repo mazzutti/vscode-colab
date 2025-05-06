@@ -381,6 +381,7 @@ def connect(
     logger.info(f"Starting VS Code tunnel with command: {cmd_str_for_logging}")
     logger.info(f"Tunnel will run with CWD: {project_path_for_tunnel_cwd}")
 
+    proc = None  # Initialize proc to None
     try:
         proc = subprocess.Popen(
             cmd_list,  # Use list of args
@@ -422,16 +423,23 @@ def connect(
                 logger.error(
                     "Tunnel process exited prematurely before URL could be detected."
                 )
-                remaining_output = proc.stdout.read()
-                if remaining_output:
-                    logger.debug(
-                        f"Remaining tunnel output:\n{remaining_output.strip()}'"
-                    )
+                if proc.stdout:  # Check if stdout is not None before reading
+                    remaining_output = proc.stdout.read()
+                    if remaining_output:
+                        logger.debug(
+                            f"Remaining tunnel output:\n{remaining_output.strip()}"
+                        )
                 return None
 
         # If loop finishes because readline returned "" (EOF) and URL not found
         if proc.poll() is not None:  # Process ended
             logger.error("Tunnel process ended before URL was detected (EOF reached).")
+            if proc.stdout:  # Check if stdout is not None before reading
+                remaining_output = proc.stdout.read()
+                if remaining_output:
+                    logger.debug(
+                        f"Remaining tunnel output after EOF:\n{remaining_output.strip()}"
+                    )
         else:  # Should not happen if iter(..., "") is used correctly with timeout
             logger.error("Tunnel URL not detected (EOF or unknown state).")
             proc.terminate()
@@ -445,7 +453,9 @@ def connect(
         return None
     except Exception as e:
         logger.error(f"Error starting tunnel: {e}")
-        if "proc" in locals() and proc.poll() is None:
+        if (
+            proc and proc.poll() is None
+        ):  # Check if proc is not None before calling poll
             proc.terminate()
             proc.wait()
         return None

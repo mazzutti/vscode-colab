@@ -1,3 +1,4 @@
+import logging
 import sys
 
 from loguru import logger
@@ -24,6 +25,15 @@ logger.add(
     # rotation="10 MB",    # e.g., rotate when file reaches 10 MB
     # retention="7 days",  # e.g., keep logs for 7 days
 )
+
+
+# Add a handler to propagate messages to the standard logging module for pytest compatibility
+class PropagateHandler(logging.Handler):
+    def emit(self, record):
+        logging.getLogger(record.name).handle(record)
+
+
+logger.add(PropagateHandler(), format="{message}", level="DEBUG")  # Add this handler
 
 # Export the configured logger
 log = logger
