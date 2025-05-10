@@ -65,6 +65,13 @@ def configure_git(
         logger.info(
             "Skipping git email configuration due to previous error in name configuration."
         )
+        # If name configuration failed, assemble the error message and return
+        final_err_msg = "Git user.name configuration failed. " + " | ".join(
+            errors_encountered
+        )
+        return SystemOperationResult.Err(
+            Exception("Git configuration failed"), message=final_err_msg
+        )
 
     email_cmd = [git_exe, "config", "--global", "user.email", git_user_email]
     try:

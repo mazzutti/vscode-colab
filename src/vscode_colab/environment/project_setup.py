@@ -266,18 +266,27 @@ def _create_virtual_environment(
         f"Attempting to create virtual environment '{venv_name}' in '{project_path}' using Python: {python_executable}"
     )
 
-    if not system.which(python_executable):  # Check if base python is findable
-        err_msg = f"Base Python executable '{python_executable}' not found on PATH. Cannot create virtual environment."
-        logger.error(err_msg)
+    base_python_path = system.which(python_executable)
+    if not base_python_path:
         return SystemOperationResult.Err(
-            FileNotFoundError(python_executable), message=err_msg
+            FileNotFoundError(
+                f"Base Python executable '{python_executable}' not found in PATH."
+            ),
+            message=f"Base Python executable '{python_executable}' not found in PATH. Cannot create virtual environment.",
         )
 
-    venv_cmd = [python_executable, "-m", "venv", venv_name]
-
+    logger.info(
+        f"Creating virtual environment '{venv_name}' in '{project_path}' using '{base_python_path}'."
+    )
+    # Use base_python_path directly, as it's the absolute path from which()
+    venv_create_cmd = [base_python_path, "-m", "venv", venv_name]
     try:
-        venv_creation_proc = system.run_command(
-            venv_cmd, capture_output=True, text=True, cwd=project_path, check=False
+        venv_create_result = system.run_command(
+            venv_create_cmd,
+            capture_output=True,
+            text=True,
+            cwd=project_path,
+            check=False,
         )
     except Exception as e_venv_run:
         logger.error(f"Failed to execute venv creation command: {e_venv_run}")
@@ -285,11 +294,11 @@ def _create_virtual_environment(
             e_venv_run, message="Execution of venv command failed."
         )
 
-    if venv_creation_proc.returncode != 0:
+    if venv_create_result.returncode != 0:
         err_msg_venv = (
-            venv_creation_proc.stderr.strip() or venv_creation_proc.stdout.strip()
+            venv_create_result.stderr.strip() or venv_create_result.stdout.strip()
         )
-        full_err_msg_venv = f"Failed to create venv '{venv_name}'. RC: {venv_creation_proc.returncode}. Error: {err_msg_venv}"
+        full_err_msg_venv = f"Failed to create venv '{venv_name}'. RC: {venv_create_result.returncode}. Error: {err_msg_venv}"
         logger.error(full_err_msg_venv)
         return SystemOperationResult.Err(
             Exception("Venv creation command failed"), message=full_err_msg_venv
