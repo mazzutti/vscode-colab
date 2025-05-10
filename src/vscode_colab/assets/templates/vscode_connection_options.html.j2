@@ -1,0 +1,23 @@
+{% set text_color = "#333333" %}
+<div style="padding:15px; background:#f0f9f0; border-radius:8px; margin:15px 0; font-family:Arial,sans-serif; border:1px solid #c8e6c9; line-height: 1.6;">
+    <h3 style="margin:0 0 15px; color:#2e7d32; font-size: 18px;">✅ VS Code Tunnel Ready!</h3>
+    <p style="margin-bottom: 15px; color: {{ text_color }};">You can connect in two ways:</p>
+    <div style="margin-bottom: 15px;">
+        <strong style="color: {{ text_color }};">1. Open in Browser:</strong><br>
+        <a href="{{ tunnel_url }}" target="_blank"
+            style="background-color:#1976d2; color:white; padding:10px 16px; border-radius:6px; text-decoration:none; font-weight:500; display:inline-block; margin-top: 5px;">
+            Open VS Code Web
+        </a>
+    </div>
+    <hr style="border: 0; border-top: 1px solid #c8e6c9; margin: 20px 0;" />
+    <div style="margin-bottom: 10px; color: {{ text_color }};">
+        <strong style="color: {{ text_color }};">2. Connect from Desktop VS Code:</strong>
+        <ol style="margin-top: 5px; padding-left: 20px; color: {{ text_color }};">
+            <li>Make sure you have the <a href="https://marketplace.visualstudio.com/items?itemName=ms-vscode.remote-server" target="_blank" style="color: #1976d2;">Remote Tunnels</a> extension installed.</li>
+            <li>Ensure you are signed in to VS Code with the <strong>same GitHub account</strong> used for authentication.</li>
+            <li>Open the Command Palette (<kbd style="background: #e0e0e0; color: #333; padding: 2px 4px; border-radius: 3px; border: 1px solid #ccc; font-family: monospace;">Ctrl+Shift+P</kbd> or <kbd style="background: #e0e0e0; color: #333; padding: 2px 4px; border-radius: 3px; border: 1px solid #ccc; font-family: monospace;">Cmd+Shift+P</kbd>).</li>
+            <li>Run the command: <code style="background: #e0e0e0; color: #333; padding: 2px 5px; border-radius: 3px;">Remote Tunnels: Connect to Tunnel</code></li>
+            <li>Select the tunnel named "<strong style="color: {{ text_color }};">{{ tunnel_name }}</strong>" from the list.</li>
+        </ol>
+    </div>
+</div>

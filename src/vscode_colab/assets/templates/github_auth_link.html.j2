@@ -1,0 +1,68 @@
+<div style="padding: 15px; background-color: #f0f7ff; border-radius: 8px; margin: 15px 0; font-family: Arial, sans-serif; border: 1px solid #c8e1ff; line-height: 1.6;">
+    <h3 style="margin-top: 0; color: #0366d6; font-size: 18px;">GitHub Authentication Required</h3>
+    <p style="margin-bottom: 15px; color: #333333;">Please open the link below in a new tab and enter the following code:</p>
+    <div style="display: flex; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 15px;">
+        <a href="{{ url }}" target="_blank"
+            style="background-color: #2ea44f; color: white; padding: 10px 16px; text-decoration: none; border-radius: 6px; font-weight: 500; white-space: nowrap;">
+            Open GitHub Authentication Page
+        </a>
+        <div id="code-container" style="background-color: #ffffff; border: 1px solid #d1d5da; border-radius: 6px; padding: 10px 16px; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; display: flex; align-items: center;">
+            <span id="auth-code" style="margin-right: 15px; font-size: 16px; user-select: all; color: #24292e;">{{ code }}</span>
+        </div>
+    </div>
+    <p id="copy-fallback-note" style="font-size: small; color: #586069; margin-top: 10px; display: none;">
+        Please select the code manually and copy it.
+    </p>
+    <script>
+        (function() {
+            // The Jinja2 'tojson' filter correctly escapes the string for JavaScript.
+            const codeToCopy = {{ code|tojson }};
+            const codeContainer = document.getElementById('code-container');
+            const fallbackNote = document.getElementById('copy-fallback-note');
+
+            function attemptCopy() {
+                const copyButton = document.getElementById('dynamicCopyButton');
+                if (!copyButton) return;
+
+                navigator.clipboard.writeText(codeToCopy).then(() => {
+                    copyButton.textContent = 'Copied!';
+                    copyButton.style.backgroundColor = '#dff0d8';
+                    copyButton.style.borderColor = '#d6e9c6';
+                    copyButton.style.color = '#3c763d';
+                    setTimeout(() => {
+                        copyButton.textContent = 'Copy';
+                        copyButton.style.backgroundColor = '#f6f8fa';
+                        copyButton.style.borderColor = '#d1d5da';
+                        copyButton.style.color = '';
+                    }, 2500);
+                }).catch(err => {
+                    console.error('Failed to copy code automatically: ', err);
+                    copyButton.textContent = 'Copy Failed';
+                    copyButton.disabled = true;
+                    copyButton.style.backgroundColor = '#f2dede';
+                    copyButton.style.borderColor = '#ebccd1';
+                    copyButton.style.color = '#a94442';
+                    fallbackNote.style.display = 'block';
+                });
+            }
+
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                const button = document.createElement('button');
+                button.id = 'dynamicCopyButton';
+                button.textContent = 'Copy';
+                button.style.backgroundColor = '#f6f8fa';
+                button.style.border = '1px solid #d1d5da';
+                button.style.borderRadius = '6px';
+                button.style.padding = '6px 12px';
+                button.style.cursor = 'pointer';
+                button.style.fontSize = '14px';
+                button.style.whiteSpace = 'nowrap';
+                button.style.marginLeft = '10px';
+                button.onclick = attemptCopy;
+                codeContainer.appendChild(button);
+            } else {
+                fallbackNote.style.display = 'block';
+            }
+        })();
+    </script>
+</div>
