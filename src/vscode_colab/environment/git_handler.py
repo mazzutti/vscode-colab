@@ -2,79 +2,98 @@ from typing import Optional
 
 from vscode_colab.logger_config import log as logger
 from vscode_colab.system import System
+from vscode_colab.utils import SystemOperationResult
 
 
 def configure_git(
     system: System,
     git_user_name: Optional[str] = None,
     git_user_email: Optional[str] = None,
-) -> bool:
+) -> SystemOperationResult[None, Exception]:
     """
     Configures global Git user name and email using the provided values.
-
-    Args:
-        system: An instance of the System class for command execution.
-        git_user_name: Git user name to configure.
-        git_user_email: Git user email to configure.
-
-    Returns:
-        True if configuration was successful or skipped, False if a configuration attempt failed.
     """
     if not git_user_name and not git_user_email:
         logger.debug(
             "Both git_user_name and git_user_email are not provided. Skipping git configuration."
         )
-        return True
+        return SystemOperationResult.Ok()
 
-    if (git_user_name and not git_user_email) or (git_user_email and not git_user_name):
-        logger.warning(
-            "Both git_user_name and git_user_email must be provided together. Skipping git configuration."
-        )
-        return True  # Treat as skipped successfully
+    if not git_user_name or not git_user_email:
+        msg = "Both git_user_name and git_user_email must be provided together. Skipping git configuration."
+        logger.warning(msg)
+        return SystemOperationResult.Ok()
 
     logger.info(
         f"Attempting to set git global user.name='{git_user_name}' and user.email='{git_user_email}'..."
     )
 
+    git_exe = system.which("git")
+    if not git_exe:
+        err_msg = "'git' command not found. Cannot configure git."
+        logger.error(err_msg)
+        return SystemOperationResult.Err(FileNotFoundError("git"), message=err_msg)
+
+    all_successful = True
+    errors_encountered: list[str] = []
+
     # Configure user name
-    if git_user_name:
-        name_cmd = ["git", "config", "--global", "user.name", git_user_name]
-        # Not using check=True here, will inspect returncode
-        result_name = system.run_command(
+    name_cmd = [git_exe, "config", "--global", "user.name", git_user_name]
+    try:
+        result_name_proc = system.run_command(
             name_cmd, capture_output=True, text=True, check=False
         )
-
-        if result_name.returncode == 0:
+    except Exception as e_run_name:
+        msg = f"Failed to execute git config user.name: {e_run_name}"
+        logger.error(msg)
+        errors_encountered.append(msg)
+        all_successful = False
+    else:
+        if result_name_proc.returncode == 0:
             logger.info(f"Successfully set git global user.name='{git_user_name}'.")
         else:
             err_output_name = (
-                result_name.stderr.strip()
-                if result_name.stderr
-                else result_name.stdout.strip()
+                result_name_proc.stderr.strip() or result_name_proc.stdout.strip()
             )
-            logger.error(
-                f"Failed to set git global user.name. Return code: {result_name.returncode}. Error: {err_output_name}"
-            )
-            return False
+            msg = f"Failed to set git global user.name. RC: {result_name_proc.returncode}. Error: {err_output_name}"
+            logger.error(msg)
+            errors_encountered.append(msg)
+            all_successful = False
 
     # Configure user email
-    if git_user_email:
-        email_cmd = ["git", "config", "--global", "user.email", git_user_email]
-        result_email = system.run_command(
-            email_cmd, capture_output=True, text=True, check=False
+    if not all_successful:
+        logger.info(
+            "Skipping git email configuration due to previous error in name configuration."
         )
 
-        if result_email.returncode == 0:
+    email_cmd = [git_exe, "config", "--global", "user.email", git_user_email]
+    try:
+        result_email_proc = system.run_command(
+            email_cmd, capture_output=True, text=True, check=False
+        )
+    except Exception as e_run_email:
+        msg = f"Failed to execute git config user.email: {e_run_email}"
+        logger.error(msg)
+        errors_encountered.append(msg)
+        all_successful = False
+    else:
+        if result_email_proc.returncode == 0:
             logger.info(f"Successfully set git global user.email='{git_user_email}'.")
         else:
             err_output_email = (
-                result_email.stderr.strip()
-                if result_email.stderr
-                else result_email.stdout.strip()
+                result_email_proc.stderr.strip() or result_email_proc.stdout.strip()
             )
-            logger.error(
-                f"Failed to set git global user.email. Return code: {result_email.returncode}. Error: {err_output_email}"
-            )
-            return False
+            msg = f"Failed to set git global user.email. RC: {result_email_proc.returncode}. Error: {err_output_email}"
+            logger.error(msg)
+            errors_encountered.append(msg)
+            all_successful = False
 
-    return True
+    if all_successful:
+        return SystemOperationResult.Ok()
+    else:
+        final_err_msg = "One or more git configuration steps failed. " + " | ".join(
+            errors_encountered
+        )
+        return SystemOperationResult.Err(
+            Exception("Git configuration failed"), message=final_err_msg
+        )

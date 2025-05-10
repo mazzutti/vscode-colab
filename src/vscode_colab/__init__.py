@@ -9,6 +9,7 @@ from vscode_colab.server import DEFAULT_EXTENSIONS as server_default_extensions
 from vscode_colab.server import connect as server_connect
 from vscode_colab.server import login as server_login
 from vscode_colab.system import System
+from vscode_colab.utils import SystemOperationResult
 
 _default_system_instance = System()
 
@@ -16,15 +17,18 @@ _default_system_instance = System()
 def login(provider: str = "github", system: Optional[System] = None) -> bool:
     """
     Attempts to log in to VS Code Tunnel using the specified authentication provider.
+    On Linux, this involves running the 'code tunnel user login' command.
 
     Args:
-        provider: The authentication provider to use. Only "github" is supported.
+        provider: The authentication provider to use. Typically "github".
+        system: Optional System instance for dependency injection (testing).
 
     Returns:
-        bool: True if the login was successful, False otherwise.
+        bool: True if the login process initiated successfully (auth info displayed), False otherwise.
     """
-    active_system = system if system else _default_system_instance
-    return server_login(provider=provider, system=active_system)
+    active_system = system if system is not None else _default_system_instance
+    # The server_login function handles the logic and returns a simple bool.
+    return server_login(system=active_system, provider=provider)
 
 
 def connect(
@@ -35,30 +39,31 @@ def connect(
     git_user_email: Optional[str] = None,
     setup_python_version: Optional[str] = None,
     force_python_reinstall: bool = False,
-    update_pyenv_before_install: bool = True,
+    attempt_pyenv_dependency_install: bool = True,
     create_new_project: Optional[str] = None,
     new_project_base_path: str = ".",
     venv_name_for_project: str = ".venv",
     system: Optional[System] = None,
 ) -> Optional[subprocess.Popen]:
     """
-    Establishes a connection to a Colab-like server environment with optional configurations.
+    Establishes a VS Code tunnel connection on a Linux environment (e.g., Colab, Kaggle).
 
     Args:
-        name (str): The name of the connection. Defaults to "colab".
+        name (str): The name of the connection tunnel. Defaults to "colab".
         include_default_extensions (bool): Whether to include default extensions. Defaults to True.
-        extensions (Optional[List[str]]): A list of additional extensions to include. Defaults to None.
-        git_user_name (Optional[str]): The Git user name to configure. Defaults to None.
-        git_user_email (Optional[str]): The Git user email to configure. Defaults to None.
-        setup_python_version (Optional[str]): The Python version to set up. Defaults to None.
-        force_python_reinstall (bool): Whether to force reinstall Python. Defaults to False.
-        update_pyenv_before_install (bool): Whether to update pyenv before installing Python. Defaults to True.
-        create_new_project (Optional[str]): The name of a new project to create. Defaults to None.
-        new_project_base_path (str): The base path for the new project. Defaults to ".".
-        venv_name_for_project (str): The name of the virtual environment for the project. Defaults to ".venv".
+        extensions (Optional[List[str]]): A list of additional VS Code extension IDs to install.
+        git_user_name (Optional[str]): Git user name for global configuration.
+        git_user_email (Optional[str]): Git user email for global configuration.
+        setup_python_version (Optional[str]): Python version (e.g., "3.9.18") to set up using pyenv.
+        force_python_reinstall (bool): If setup_python_version is provided, force reinstall it.
+        attempt_pyenv_dependency_install (bool): Attempt to install pyenv OS dependencies (e.g. via apt). Requires sudo.
+        create_new_project (Optional[str]): Name of a new project directory to create.
+        new_project_base_path (str): Base path for the new project. Defaults to current directory ".".
+        venv_name_for_project (str): Name of the virtual environment directory within the new project.
+        system: Optional System instance for dependency injection (testing).
 
     Returns:
-        Optional[subprocess.Popen]: A subprocess.Popen object representing the server connection, or None if the connection could not be established.
+        Optional[subprocess.Popen]: A Popen object for the tunnel process if successful, None otherwise.
     """
     active_system = system if system is not None else _default_system_instance
     return server_connect(
@@ -70,6 +75,7 @@ def connect(
         git_user_email=git_user_email,
         setup_python_version=setup_python_version,
         force_python_reinstall=force_python_reinstall,
+        attempt_pyenv_dependency_install=attempt_pyenv_dependency_install,
         create_new_project=create_new_project,
         new_project_base_path=new_project_base_path,
         venv_name_for_project=venv_name_for_project,
@@ -82,6 +88,5 @@ DEFAULT_EXTENSIONS: frozenset[str] = frozenset(server_default_extensions)
 __all__ = [
     "login",
     "connect",
-    "System",
     "DEFAULT_EXTENSIONS",
 ]

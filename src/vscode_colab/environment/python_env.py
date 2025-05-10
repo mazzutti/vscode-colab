@@ -1,16 +1,40 @@
 import os
-from typing import Dict, List
+from typing import Dict, List, Optional, Set
 
 from vscode_colab.logger_config import log as logger
-from vscode_colab.system import System, SystemOperationResult
+from vscode_colab.system import System
+from vscode_colab.utils import SystemOperationResult
 
 PYENV_INSTALLER_URL = "https://pyenv.run"
 INSTALLER_SCRIPT_NAME = "pyenv-installer.sh"
 
+# Common pyenv build dependencies for Debian/Ubuntu-based systems
+# Source: https://github.com/pyenv/pyenv/wiki#suggested-build-environment
+PYENV_BUILD_DEPENDENCIES: Set[str] = {
+    "build-essential",
+    "curl",
+    "libbz2-dev",
+    "libffi-dev",
+    "liblzma-dev",
+    "libncurses5-dev",
+    "libncursesw5-dev",
+    "libreadline-dev",
+    "libsqlite3-dev",
+    "libssl-dev",
+    "libxml2-dev",
+    "libxmlsec1-dev",
+    "llvm",
+    "make",
+    "tk-dev",
+    "wget",
+    "xz-utils",
+    "zlib1g-dev",
+}
+
 
 class PythonEnvManager:
     """
-    Manages pyenv installation and Python version installations via pyenv.
+    Manages pyenv installation and Python version installations via pyenv on Linux.
     """
 
     def __init__(self, system: System) -> None:
@@ -23,92 +47,192 @@ class PythonEnvManager:
             os.path.join(self.pyenv_root, "bin", "pyenv")
         )
 
-    def _get_env_vars(self) -> Dict[str, str]:
+    def _get_pyenv_env_vars(self) -> Dict[str, str]:
         """
         Constructs environment variables needed for pyenv commands.
         """
         current_env = os.environ.copy()
         current_env["PYENV_ROOT"] = self.pyenv_root
 
+        # pyenv's own init script would typically add these to the shell's PATH
+        # For direct command execution, ensure pyenv's bin and shims are in PATH
         pyenv_bin_path = self.system.get_absolute_path(
             os.path.join(self.pyenv_root, "bin")
         )
         pyenv_shims_path = self.system.get_absolute_path(
             os.path.join(self.pyenv_root, "shims")
         )
+
         new_path_parts: List[str] = [pyenv_bin_path, pyenv_shims_path]
         existing_path = current_env.get("PATH", "")
-        current_env["PATH"] = (
-            os.pathsep.join(new_path_parts) + os.pathsep + existing_path
-        )
+        if existing_path:
+            new_path_parts.append(existing_path)
+        current_env["PATH"] = os.pathsep.join(new_path_parts)
+
         return current_env
 
-    def install_pyenv(self) -> SystemOperationResult:
-        """Installs the pyenv executable.
+    def install_pyenv_dependencies(self) -> SystemOperationResult[None, Exception]:
+        """
+        Installs pyenv build dependencies using apt. Assumes a Debian/Ubuntu-based system.
+        Requires sudo privileges.
+        """
+        logger.info("Attempting to install pyenv build dependencies...")
+
+        # Check for sudo
+        sudo_path = self.system.which("sudo")
+        if not sudo_path:
+            msg = "sudo command not found. Cannot install dependencies."
+            logger.warning(msg)
+            return SystemOperationResult.Err(FileNotFoundError("sudo"), message=msg)
+
+        apt_path = self.system.which("apt")
+        if not apt_path:
+            msg = "apt command not found. Cannot install dependencies."
+            logger.warning(msg)
+            return SystemOperationResult.Err(FileNotFoundError("apt"), message=msg)
+
+        # Step 1: apt update
+        update_cmd = [sudo_path, apt_path, "update", "-y"]
+
+        logger.info(f"Running: {' '.join(update_cmd)}")
+        try:
+            update_proc = self.system.run_command(
+                update_cmd, capture_output=True, text=True, check=False
+            )
+        except Exception as e_update_run:
+            logger.error(f"Failed to execute apt-get update: {e_update_run}")
+            return SystemOperationResult.Err(
+                e_update_run, message="apt-get update execution failed"
+            )
+
+        if update_proc.returncode != 0:
+            err_msg = f"apt-get update failed (RC: {update_proc.returncode}). Stdout: {update_proc.stdout.strip()} Stderr: {update_proc.stderr.strip()}"
+            logger.error(err_msg)
+            return SystemOperationResult.Err(
+                Exception("apt update failed"), message=err_msg
+            )
+        logger.info("apt update completed successfully.")
+
+        # Step 2: apt install dependencies
+        install_cmd = [sudo_path, apt_path, "install", "-y"]
+        install_cmd.extend(sorted(list(PYENV_BUILD_DEPENDENCIES)))
+
+        logger.info(f"Running: {' '.join(install_cmd)} (this might take a moment)")
+        try:
+            install_proc = self.system.run_command(
+                install_cmd, capture_output=True, text=True, check=False
+            )
+        except Exception as e_install_run:
+            logger.error(
+                f"Failed to execute apt install for pyenv dependencies: {e_install_run}"
+            )
+            return SystemOperationResult.Err(
+                e_install_run, message="apt install dependencies execution failed"
+            )
+
+        if install_proc.returncode != 0:
+            err_msg_install = f"apt install pyenv dependencies failed (RC: {install_proc.returncode}). Stdout: {install_proc.stdout.strip()} Stderr: {install_proc.stderr.strip()}"
+            logger.error(err_msg_install)
+            logger.warning(
+                "One or more dependencies might have failed to install. Check apt output above."
+            )
+            return SystemOperationResult.Err(
+                Exception("apt install dependencies failed"),
+                message=err_msg_install,
+            )
+
+        logger.info("Successfully installed pyenv build dependencies.")
+        return SystemOperationResult.Ok()
+
+    def install_pyenv(
+        self, attempt_to_install_deps: bool = True
+    ) -> SystemOperationResult[str, Exception]:
+        """
+        Installs the pyenv executable.
         Returns SystemOperationResult with pyenv executable path in `value` on success.
         """
         logger.info(f"Attempting to install pyenv into {self.pyenv_root}...")
 
-        if not self.system.dir_exists(self.pyenv_root):
-            mkd_res = self.system.make_dirs(self.pyenv_root)
-            if not mkd_res:
-                logger.error(
-                    f"Failed to create PYENV_ROOT directory {self.pyenv_root}: {mkd_res.error}"
-                )
-                return SystemOperationResult.Err(
-                    mkd_res.error or Exception("Failed to create PYENV_ROOT")
+        if attempt_to_install_deps:
+            logger.info("Checking and installing pyenv build dependencies first...")
+            deps_res = self.install_pyenv_dependencies()
+            if not deps_res:
+                logger.warning(
+                    f"Failed to install pyenv dependencies: {deps_res.message}. Pyenv installation might fail."
                 )
 
-        installer_script_path = self.system.get_absolute_path(
+        mkd_res = self.system.make_dirs(self.pyenv_root)  # exist_ok=True by default
+        if not mkd_res:
+            return SystemOperationResult.Err(
+                mkd_res.error or Exception("Failed to create PYENV_ROOT"),
+                message=f"Failed to create PYENV_ROOT directory {self.pyenv_root}: {mkd_res.message}",
+            )
+
+        installer_script_path_in_root = self.system.get_absolute_path(
             os.path.join(self.pyenv_root, INSTALLER_SCRIPT_NAME)
         )
 
         download_res = self.system.download_file(
-            PYENV_INSTALLER_URL, installer_script_path
+            PYENV_INSTALLER_URL, installer_script_path_in_root
         )
         if not download_res:
-            logger.error(
-                f"Failed to download pyenv installer from {PYENV_INSTALLER_URL}: {download_res.error}"
-            )
             self.system.remove_file(
-                installer_script_path, missing_ok=True, log_success=False
+                installer_script_path_in_root, missing_ok=True, log_success=False
             )
             return SystemOperationResult.Err(
-                download_res.error or Exception("Download failed")
+                download_res.error or Exception("Download failed"),
+                message=f"Failed to download pyenv installer from {PYENV_INSTALLER_URL}: {download_res.message}",
             )
 
         bash_exe = self.system.which("bash")
         if not bash_exe:
-            err = Exception("bash not found, cannot execute pyenv installer script.")
-            logger.error(str(err))
+            err = FileNotFoundError(
+                "bash not found, cannot execute pyenv installer script."
+            )
             self.system.remove_file(
-                installer_script_path, missing_ok=True, log_success=False
+                installer_script_path_in_root, missing_ok=True, log_success=False
             )
             return SystemOperationResult.Err(err)
 
-        installer_cmd = [bash_exe, installer_script_path]
-        installer_env = os.environ.copy()
-        installer_env["PYENV_ROOT"] = self.pyenv_root
+        installer_cmd = [bash_exe, installer_script_path_in_root]
+        # PYENV_ROOT is often set as an env var for the installer script itself
+        pyenv_installer_env = os.environ.copy()
+        pyenv_installer_env["PYENV_ROOT"] = self.pyenv_root
+        # Some installers might also respect GIT_DIR or other vars, but PYENV_ROOT is key.
 
-        logger.info(f"Executing pyenv installer script: {installer_script_path}")
-        installer_proc_result = self.system.run_command(
-            installer_cmd,
-            env=installer_env,
-            capture_output=True,
-            text=True,
-            check=False,
+        logger.info(
+            f"Executing pyenv installer script: {installer_script_path_in_root}"
         )
+        try:
+            installer_proc_result = self.system.run_command(
+                installer_cmd,
+                env=pyenv_installer_env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except Exception as e_install_run:
+            self.system.remove_file(
+                installer_script_path_in_root, missing_ok=True, log_success=False
+            )
+            return SystemOperationResult.Err(
+                e_install_run,
+                message=f"Pyenv installer script execution failed: {e_install_run}",
+            )
 
         self.system.remove_file(
-            installer_script_path, missing_ok=True, log_success=False
+            installer_script_path_in_root, missing_ok=True, log_success=False
         )
 
         if installer_proc_result.returncode != 0:
-            err_msg = f"Pyenv installer script failed (RC: {installer_proc_result.returncode})."
+            err_msg = (
+                f"Pyenv installer script failed (RC: {installer_proc_result.returncode})."
+                f"Stdout: {installer_proc_result.stdout.strip()} Stderr: {installer_proc_result.stderr.strip()}"
+            )
             logger.error(err_msg)
-            logger.debug(f"Installer stdout: {installer_proc_result.stdout.strip()}")
-            logger.debug(f"Installer stderr: {installer_proc_result.stderr.strip()}")
-            return SystemOperationResult.Err(Exception(err_msg))
+            return SystemOperationResult.Err(
+                Exception("Pyenv installer script failed"), message=err_msg
+            )
 
         logger.debug(f"pyenv installer stdout: {installer_proc_result.stdout.strip()}")
         if installer_proc_result.stderr.strip():
@@ -120,7 +244,6 @@ class PythonEnvManager:
             err = Exception(
                 f"Pyenv script ran, but executable not found at {self.pyenv_executable_path}."
             )
-            logger.error(str(err))
             return SystemOperationResult.Err(err)
 
         logger.info("pyenv installed successfully.")
@@ -128,70 +251,67 @@ class PythonEnvManager:
 
     @property
     def is_pyenv_installed(self) -> bool:
-        """
-        Checks if the pyenv executable is present and executable.
-        This is a pure check and does NOT trigger installation.
-        """
+        """Checks if the pyenv executable is present and executable."""
         is_present = self.system.is_executable(self.pyenv_executable_path)
-        if is_present:
-            logger.debug(f"pyenv executable found at {self.pyenv_executable_path}")
-        else:
-            logger.debug(f"pyenv executable not found at {self.pyenv_executable_path}")
+        logger.debug(
+            f"pyenv executable {'found' if is_present else 'not found'} at {self.pyenv_executable_path}"
+        )
         return is_present
 
-    def is_python_version_installed(self, python_version: str) -> SystemOperationResult:
-        """
-        Checks if a specific Python version is installed by pyenv.
-        Returns SystemOperationResult with boolean in `value` indicating presence.
-        This method assumes pyenv is already installed and executable.
-        """
+    def is_python_version_installed(
+        self, python_version: str
+    ) -> SystemOperationResult[bool, Exception]:
+        """Checks if a specific Python version is installed by pyenv."""
         if not self.is_pyenv_installed:
             return SystemOperationResult.Err(
                 Exception("Pyenv is not installed, cannot check Python versions.")
             )
 
-        pyenv_env = self._get_env_vars()
+        pyenv_env = self._get_pyenv_env_vars()
         logger.debug(
             f"Checking if Python version {python_version} is installed by pyenv..."
         )
         versions_cmd = [self.pyenv_executable_path, "versions", "--bare"]
 
-        versions_proc_result = self.system.run_command(
-            versions_cmd, env=pyenv_env, capture_output=True, text=True, check=False
-        )
+        try:
+            versions_proc_result = self.system.run_command(
+                versions_cmd, env=pyenv_env, capture_output=True, text=True, check=False
+            )
+        except Exception as e_run:
+            return SystemOperationResult.Err(
+                e_run, message=f"Failed to run 'pyenv versions': {e_run}"
+            )
 
         if versions_proc_result.returncode == 0:
-            is_present = (
-                python_version in versions_proc_result.stdout.strip().splitlines()
-            )
+            installed_versions = versions_proc_result.stdout.strip().splitlines()
+            is_present = python_version in installed_versions
             logger.debug(
-                f"Python version '{python_version}' present in pyenv: {is_present}."
+                f"Python version '{python_version}' present in pyenv: {is_present}. Installed: {installed_versions}"
             )
-            return SystemOperationResult.Ok(value=is_present)
+            return SystemOperationResult.Ok(is_present)
         else:
-            err_msg = f"Could not list pyenv versions (RC: {versions_proc_result.returncode})."
+            err_msg = (
+                f"Could not list pyenv versions (RC: {versions_proc_result.returncode}). "
+                f"Stdout: {versions_proc_result.stdout.strip()} Stderr: {versions_proc_result.stderr.strip()}"
+            )
             logger.warning(err_msg)
-            logger.debug(
-                f"Pyenv versions stdout: {versions_proc_result.stdout.strip()}"
+            return SystemOperationResult.Err(
+                Exception("Failed to list pyenv versions"), message=err_msg
             )
-            logger.debug(
-                f"Pyenv versions stderr: {versions_proc_result.stderr.strip()}"
-            )
-            return SystemOperationResult.Err(Exception(err_msg))
 
     def install_python_version(
         self, python_version: str, force_reinstall: bool = False
-    ) -> SystemOperationResult:
+    ) -> SystemOperationResult[None, Exception]:
         """Installs a specific Python version using pyenv. Assumes pyenv is installed."""
         if not self.is_pyenv_installed:
             return SystemOperationResult.Err(
                 Exception("Pyenv is not installed, cannot install Python version.")
             )
 
-        pyenv_env = self._get_env_vars()
+        pyenv_env = self._get_pyenv_env_vars()
         action = "Force reinstalling" if force_reinstall else "Installing"
         logger.info(
-            f"{action} Python {python_version} with pyenv. This may take around 5 minutes..."
+            f"{action} Python {python_version} with pyenv. This may take around 5-10 minutes..."
         )
 
         install_cmd_list = [self.pyenv_executable_path, "install"]
@@ -199,115 +319,154 @@ class PythonEnvManager:
             install_cmd_list.append("--force")
         install_cmd_list.append(python_version)
 
+        # Add PYTHON_CONFIGURE_OPTS for shared library, crucial for some tools like venv/virtualenv with pyenv python
         python_build_env = pyenv_env.copy()
         python_build_env["PYTHON_CONFIGURE_OPTS"] = "--enable-shared"
+        # Can also add CFLAGS for optimizations if needed, e.g.
+        # python_build_env["CFLAGS"] = "-O2 -march=native" (be careful with march=native in shared envs)
         logger.info(
             f"Using PYTHON_CONFIGURE_OPTS: {python_build_env['PYTHON_CONFIGURE_OPTS']}"
         )
 
-        install_proc_result = self.system.run_command(
-            install_cmd_list,
-            env=python_build_env,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        try:
+            install_proc_result = self.system.run_command(
+                install_cmd_list,
+                env=python_build_env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except Exception as e_run:
+            return SystemOperationResult.Err(
+                e_run,
+                message=f"Failed to run 'pyenv install {python_version}': {e_run}",
+            )
 
         if install_proc_result.returncode == 0:
             logger.info(f"Python {python_version} installed successfully via pyenv.")
             return SystemOperationResult.Ok()
-        else:
-            err_msg = f"Failed to install Python {python_version} using pyenv (RC: {install_proc_result.returncode})."
-            logger.error(err_msg)
-            logger.debug(f"Pyenv install stdout: {install_proc_result.stdout.strip()}")
-            logger.debug(f"Pyenv install stderr: {install_proc_result.stderr.strip()}")
-            logger.error(
-                "Ensure build dependencies are installed (see pyenv docs/wiki for your OS)."
-            )
-            return SystemOperationResult.Err(Exception(err_msg))
 
-    def set_global_python_version(self, python_version: str) -> SystemOperationResult:
+        err_msg = (
+            f"Failed to install Python {python_version} using pyenv (RC: {install_proc_result.returncode}). "
+            f"Stdout: {install_proc_result.stdout.strip()} Stderr: {install_proc_result.stderr.strip()}"
+        )
+        logger.error(err_msg)
+        logger.error(
+            "Ensure build dependencies are installed (see pyenv docs/wiki or try `install_pyenv_dependencies()`)."
+        )
+        return SystemOperationResult.Err(
+            Exception(f"Pyenv install {python_version} failed"), message=err_msg
+        )
+
+    def set_global_python_version(
+        self, python_version: str
+    ) -> SystemOperationResult[None, Exception]:
         """Sets the global Python version using pyenv. Assumes pyenv is installed."""
         if not self.is_pyenv_installed:
             return SystemOperationResult.Err(
                 Exception("Pyenv is not installed, cannot set global Python version.")
             )
 
-        pyenv_env = self._get_env_vars()
+        pyenv_env = self._get_pyenv_env_vars()
         logger.info(f"Setting global Python version to {python_version} using pyenv...")
         global_cmd = [self.pyenv_executable_path, "global", python_version]
 
-        global_proc_result = self.system.run_command(
-            global_cmd, env=pyenv_env, capture_output=True, text=True, check=False
-        )
+        try:
+            global_proc_result = self.system.run_command(
+                global_cmd, env=pyenv_env, capture_output=True, text=True, check=False
+            )
+        except Exception as e_run:
+            return SystemOperationResult.Err(
+                e_run, message=f"Failed to run 'pyenv global {python_version}': {e_run}"
+            )
 
         if global_proc_result.returncode == 0:
             logger.info(f"Global Python version successfully set to {python_version}.")
             return SystemOperationResult.Ok()
-        else:
-            err_msg = f"Failed to set global Python version to {python_version} (RC: {global_proc_result.returncode})."
-            logger.error(err_msg)
-            logger.debug(f"Pyenv global stdout: {global_proc_result.stdout.strip()}")
-            logger.debug(f"Pyenv global stderr: {global_proc_result.stderr.strip()}")
-            return SystemOperationResult.Err(Exception(err_msg))
 
-    def get_python_executable_path(self, python_version: str) -> SystemOperationResult:
+        err_msg = (
+            f"Failed to set global Python version to {python_version} (RC: {global_proc_result.returncode}). "
+            f"Stdout: {global_proc_result.stdout.strip()} Stderr: {global_proc_result.stderr.strip()}"
+        )
+        logger.error(err_msg)
+        return SystemOperationResult.Err(
+            Exception(f"pyenv global {python_version} failed"), message=err_msg
+        )
+
+    def get_python_executable_path(
+        self, python_version: str
+    ) -> SystemOperationResult[str, Exception]:
         """
         Gets the path to the Python executable managed by pyenv for the given version.
-        Assumes pyenv is installed and the version is set globally.
-        Returns SystemOperationResult with the path in `value` on success.
+        Assumes pyenv is installed and the version is set globally or is otherwise findable by `pyenv which`.
         """
         if not self.is_pyenv_installed:
             return SystemOperationResult.Err(
                 Exception("Pyenv is not installed, cannot get Python path.")
             )
 
-        pyenv_env = self._get_env_vars()
+        pyenv_env = self._get_pyenv_env_vars()
         logger.debug(
-            f"Verifying Python executable location for version {python_version} via 'pyenv which python'..."
+            f"Verifying Python executable for version {python_version} via 'pyenv which python'..."
         )
+        # 'pyenv which python' should give the path for the currently active python version (e.g., global)
         which_cmd = [self.pyenv_executable_path, "which", "python"]
 
-        which_proc_result = self.system.run_command(
-            which_cmd, env=pyenv_env, capture_output=True, text=True, check=False
-        )
-
-        if which_proc_result.returncode == 0 and which_proc_result.stdout.strip():
-            found_path_via_which = self.system.get_absolute_path(
-                which_proc_result.stdout.strip()
+        try:
+            which_proc_result = self.system.run_command(
+                which_cmd, env=pyenv_env, capture_output=True, text=True, check=False
             )
-            if self.system.is_executable(found_path_via_which):
-                logger.debug(
-                    f"Python executable (via 'pyenv which python') found at: {found_path_via_which}"
-                )
-                try:
-                    resolved_path = self.system.get_absolute_path(
-                        os.path.realpath(found_path_via_which)
-                    )
-                    logger.debug(f"Resolved Python executable path: {resolved_path}")
+        except Exception as e_run:
+            return SystemOperationResult.Err(
+                e_run, message=f"Failed to run 'pyenv which python': {e_run}"
+            )
 
-                    expected_version_dir = self.system.get_absolute_path(
-                        os.path.join(self.pyenv_root, "versions", python_version)
-                    )
-                    if resolved_path.startswith(expected_version_dir):
-                        return SystemOperationResult.Ok(value=resolved_path)
-                    else:
-                        logger.warning(
-                            f"'pyenv which python' resolved to '{resolved_path}', which is not in the expected directory for version '{python_version}' ({expected_version_dir}). This might indicate the global pyenv version is not '{python_version}'."
-                        )
-                except Exception as e_real:
-                    logger.warning(
-                        f"Could not resolve real path for {found_path_via_which}: {e_real}. Proceeding with direct path check."
-                    )
-            else:
-                logger.warning(
-                    f"'pyenv which python' provided a non-executable path: {found_path_via_which}"
-                )
-        else:
+        found_path_via_which: Optional[str] = None
+        if which_proc_result.returncode != 0 or not which_proc_result.stdout.strip():
+            message = (
+                f"pyenv which python failed (RC: {which_proc_result.returncode}) or returned empty. "
+                f"Stdout: {which_proc_result.stdout.strip()} Stderr: {which_proc_result.stderr.strip()}"
+            )
+            logger.warning(message)
+
+        candidate_path = self.system.get_absolute_path(which_proc_result.stdout.strip())
+
+        if not self.system.is_executable(candidate_path):
             logger.warning(
-                f"'pyenv which python' failed (RC: {which_proc_result.returncode}) or returned empty. Stderr: {which_proc_result.stderr.strip() or 'N/A'}"
+                f"'pyenv which python' provided a non-executable path: {candidate_path}"
             )
 
+        try:
+            # Resolve symlinks to ensure we're checking the actual binary's location
+            resolved_path = self.system.get_absolute_path(
+                os.path.realpath(candidate_path)
+            )
+            expected_version_dir_prefix = self.system.get_absolute_path(
+                os.path.join(self.pyenv_root, "versions", python_version)
+            )
+            # Check if the resolved path is within the expected version's directory
+            if resolved_path.startswith(expected_version_dir_prefix):
+                logger.debug(
+                    f"Python executable for '{python_version}' (via 'pyenv which') found at: {resolved_path}"
+                )
+                found_path_via_which = resolved_path
+            else:
+                message = (
+                    f"'pyenv which python' resolved to '{resolved_path}', which is not in the expected directory "
+                    f"for version '{python_version}' ({expected_version_dir_prefix}). This might indicate the "
+                    f"global pyenv version is not '{python_version}' or pyenv state is unexpected."
+                )
+                logger.warning(message)
+        except Exception as e_real:  # os.path.realpath can fail
+            logger.warning(
+                f"Could not resolve real path for {candidate_path}: {e_real}. Using direct path check."
+            )
+
+        if found_path_via_which:
+            return SystemOperationResult.Ok(found_path_via_which)
+
+        # Fallback: Construct the path directly. This is less robust if shims/global aren't set.
+        # However, if 'pyenv global <version>' was successful, this should be correct.
         expected_python_path_direct = self.system.get_absolute_path(
             os.path.join(self.pyenv_root, "versions", python_version, "bin", "python")
         )
@@ -318,41 +477,43 @@ class PythonEnvManager:
             logger.info(
                 f"Python executable for version {python_version} found at direct path: {expected_python_path_direct}"
             )
-            return SystemOperationResult.Ok(value=expected_python_path_direct)
+            return SystemOperationResult.Ok(expected_python_path_direct)
 
-        err = Exception(
-            f"Python executable for version {python_version} could not be reliably located."
+        err_msg_final = f"Python executable for version {python_version} could not be reliably located via 'pyenv which' or direct path."
+        logger.error(err_msg_final)
+        return SystemOperationResult.Err(
+            FileNotFoundError(err_msg_final), message=err_msg_final
         )
-        logger.error(str(err))
-        return SystemOperationResult.Err(err)
 
     def setup_and_get_python_executable(
         self,
         python_version: str,
         force_reinstall_python: bool = False,
-    ) -> SystemOperationResult:
+        attempt_pyenv_dependency_install: bool = True,  # New parameter
+    ) -> SystemOperationResult[str, Exception]:
         """
-        Ensures pyenv is installed, installs the specified Python version (if needed),
-        sets it as global, and returns the path to its executable.
-
-        Returns:
-            SystemOperationResult: Success with the path to the Python executable in `value`,
-                                   or failure with an error.
+        Ensures pyenv is installed (optionally installing its deps), installs the specified Python version
+        (if needed or forced), sets it as global, and returns the path to its executable.
         """
         if not self.is_pyenv_installed:
             logger.info("Pyenv is not installed. Attempting to install pyenv.")
-            install_pyenv_res = self.install_pyenv()
+            # Pass the dependency install flag to install_pyenv
+            install_pyenv_res = self.install_pyenv(
+                attempt_to_install_deps=attempt_pyenv_dependency_install
+            )
             if not install_pyenv_res:
                 return SystemOperationResult.Err(
                     install_pyenv_res.error
-                    or Exception("Pyenv installation failed during setup.")
+                    or Exception("Pyenv installation failed during setup."),
+                    message=f"Pyenv installation failed: {install_pyenv_res.message}",
                 )
 
         version_installed_check_res = self.is_python_version_installed(python_version)
         if not version_installed_check_res:
             return SystemOperationResult.Err(
                 version_installed_check_res.error
-                or Exception("Failed to check installed Python versions")
+                or Exception("Failed to check installed Python versions"),
+                message=f"Failed to check installed Python versions: {version_installed_check_res.message}",
             )
 
         is_python_already_installed = version_installed_check_res.value
@@ -364,14 +525,20 @@ class PythonEnvManager:
             if not install_op_res:
                 return SystemOperationResult.Err(
                     install_op_res.error
-                    or Exception(f"Failed to install Python {python_version}")
+                    or Exception(f"Failed to install Python {python_version}"),
+                    message=f"Failed to install Python {python_version}: {install_op_res.message}",
                 )
+        else:
+            logger.info(
+                f"Python version {python_version} is already installed. Skipping installation."
+            )
 
         set_global_op_res = self.set_global_python_version(python_version)
         if not set_global_op_res:
             return SystemOperationResult.Err(
                 set_global_op_res.error
-                or Exception(f"Failed to set Python {python_version} as global")
+                or Exception(f"Failed to set Python {python_version} as global"),
+                message=f"Failed to set Python {python_version} as global: {set_global_op_res.message}",
             )
 
         return self.get_python_executable_path(python_version)

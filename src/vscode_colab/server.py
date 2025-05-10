@@ -2,7 +2,7 @@ import os
 import re
 import subprocess
 import time
-from typing import List, Optional, Set
+from typing import List, Optional, Set, Tuple
 
 from IPython.display import HTML, display
 
@@ -17,6 +17,7 @@ from vscode_colab.templating import (
     render_github_auth_template,
     render_vscode_connection_template,
 )
+from vscode_colab.utils import SystemOperationResult
 
 DEFAULT_EXTENSIONS: Set[str] = {
     "mgesbert.python-path",
@@ -32,83 +33,144 @@ DEFAULT_EXTENSIONS: Set[str] = {
 }
 
 
-def download_vscode_cli(system: System, force_download: bool = False) -> bool:
+def download_vscode_cli(
+    system: System, force_download: bool = False
+) -> SystemOperationResult[str, Exception]:
     """
-    Downloads and extracts the Visual Studio Code CLI.
+    Downloads and extracts the Visual Studio Code CLI for Linux.
+    Returns SystemOperationResult with the absolute path to the CLI executable directory on success.
     """
-    cli_executable_path = "./code"
-    cli_tarball_name = "vscode_cli.tar.gz"
+    # On Linux, the CLI is typically extracted into a directory, and the executable is within it.
+    cli_dir_name = "code"  # The directory created by extracting the tarball
+    cli_executable_name_in_dir = "code"
+
+    cli_tarball_name = "vscode_cli_alpine_x64.tar.gz"  # More specific name
+
+    # Paths relative to current CWD where download and extraction happen
+    # The server.py functions assume they operate from a specific CWD.
+    abs_cli_dir_path = system.get_absolute_path(cli_dir_name)
+    abs_cli_executable_path = system.get_absolute_path(
+        os.path.join(abs_cli_dir_path, cli_executable_name_in_dir)
+    )
     abs_cli_tarball_path = system.get_absolute_path(cli_tarball_name)
-    abs_cli_executable_path = system.get_absolute_path(cli_executable_path)
 
-    if system.path_exists(abs_cli_executable_path) and not force_download:
+    if system.is_executable(abs_cli_executable_path) and not force_download:
         logger.info(
-            f"VS Code CLI already exists at {abs_cli_executable_path}. Skipping download."
+            f"VS Code CLI already exists and is executable at {abs_cli_executable_path}. Skipping download."
         )
-        return True
+        return SystemOperationResult.Ok(abs_cli_executable_path)
 
-    logger.info("Downloading VS Code CLI...")
-    download_success, download_err = system.download_file(
-        "https://code.visualstudio.com/sha/download?build=stable&os=cli-alpine-x64",
+    # If directory exists but not executable, or force_download, remove existing first
+    if system.path_exists(abs_cli_dir_path) and force_download:
+        logger.info(
+            f"Force download: Removing existing VS Code CLI directory at {abs_cli_dir_path}"
+        )
+        rm_dir_res = system.remove_dir(abs_cli_dir_path, recursive=True)
+        if not rm_dir_res:
+            logger.warning(
+                f"Failed to remove existing CLI directory {abs_cli_dir_path}: {rm_dir_res.message}"
+            )
+
+    logger.info(
+        f"Downloading VS Code CLI (cli-alpine-x64) to {abs_cli_tarball_path}..."
+    )
+    download_res = system.download_file(
+        "https://code.visualstudio.com/sha/download?build=stable&os=cli-alpine-x64",  # Hardcoded for Linux
         abs_cli_tarball_path,
     )
-    if not download_success:
-        logger.error(f"Failed to download VS Code CLI: {download_err}")
-        return False
+    if not download_res:
+        return SystemOperationResult.Err(
+            download_res.error or Exception("Download failed"),
+            message=f"Failed to download VS Code CLI: {download_res.message}",
+        )
 
     logger.info("VS Code CLI tarball downloaded. Extracting...")
     tar_exe = system.which("tar")
     if not tar_exe:
-        logger.error("'tar' command not found. Cannot extract VS Code CLI.")
-        system.remove_file(abs_cli_tarball_path, missing_ok=True)  # Cleanup
-        return False
+        msg = "'tar' command not found. Cannot extract VS Code CLI."
+        logger.error(msg)
+        system.remove_file(abs_cli_tarball_path, missing_ok=True, log_success=False)
+        return SystemOperationResult.Err(FileNotFoundError("tar"), message=msg)
 
-    extract_cmd = [tar_exe, "-xf", abs_cli_tarball_path]
-    extract_result = system.run_command(extract_cmd, capture_output=True, text=True)
-    system.remove_file(
-        abs_cli_tarball_path, missing_ok=True, log_success=False
-    )  # Cleanup tarball
+    # Tar typically extracts into the current working directory.
+    # The archive is expected to contain a top-level directory (e.g., "code")
+    extract_cmd = [
+        tar_exe,
+        "-xzf",
+        abs_cli_tarball_path,
+    ]  # -x: extract, -z: gzip, -f: file
 
-    if extract_result.returncode != 0:
-        err_msg = (
-            extract_result.stderr.strip()
-            if extract_result.stderr
-            else extract_result.stdout.strip()
+    try:
+        extract_proc = system.run_command(
+            extract_cmd, capture_output=True, text=True, check=False
         )
-        logger.error(
-            f"Failed to extract VS Code CLI. RC: {extract_result.returncode}. Error: {err_msg}"
+    except Exception as e_extract_run:
+        system.remove_file(abs_cli_tarball_path, missing_ok=True, log_success=False)
+        return SystemOperationResult.Err(
+            e_extract_run,
+            message=f"VS Code CLI extraction command failed: {e_extract_run}",
         )
-        return False
+    finally:
+        system.remove_file(
+            abs_cli_tarball_path, missing_ok=True, log_success=False
+        )  # Cleanup tarball
 
-    if not system.path_exists(abs_cli_executable_path):  # Check if './code' was created
-        logger.error(f"'{abs_cli_executable_path}' not found after extraction.")
-        return False
+    if extract_proc.returncode != 0:
+        err_msg = extract_proc.stderr.strip() or extract_proc.stdout.strip()
+        full_err_msg = f"Failed to extract VS Code CLI. RC: {extract_proc.returncode}. Error: {err_msg}"
+        logger.error(full_err_msg)
+        return SystemOperationResult.Err(
+            Exception("tar extraction failed"), message=full_err_msg
+        )
 
-    # The 'code' file within the extracted tarball needs execute permissions.
-    # abs_cli_executable_path points to the *directory* ./code. The actual binary is inside.
-    # The binary is typically just named 'code' inside this directory.
-    actual_cli_binary = system.get_absolute_path(
-        os.path.join(abs_cli_executable_path, "code")
-    )
-
-    if system.file_exists(actual_cli_binary):
-        try:
-            current_mode = system.get_permissions(actual_cli_binary)
-            # Add execute for user, group, others
-            system.change_permissions(actual_cli_binary, current_mode | 0o111)
-            logger.info(f"Set execute permission for {actual_cli_binary}")
-        except Exception as e_chmod:
-            logger.warning(
-                f"Could not set execute permission for {actual_cli_binary}: {e_chmod}"
+    # After extraction, the executable should be at abs_cli_executable_path
+    if not system.file_exists(abs_cli_executable_path):
+        msg = f"VS Code CLI executable '{abs_cli_executable_path}' not found after extraction."
+        logger.error(msg)
+        # Check if the directory itself was created, maybe the exe name inside is different?
+        if system.dir_exists(abs_cli_dir_path):
+            logger.debug(
+                f"Directory {abs_cli_dir_path} exists, but executable {cli_executable_name_in_dir} not found within."
             )
-            # This might not be fatal if permissions are already okay or not strictly needed by Popen.
-    else:
-        logger.warning(
-            f"VS Code CLI binary not found at expected path: {actual_cli_binary} inside {abs_cli_executable_path}"
+        return SystemOperationResult.Err(
+            FileNotFoundError(abs_cli_executable_path), message=msg
         )
 
-    logger.info(f"VS Code CLI extracted successfully to '{abs_cli_executable_path}'.")
-    return True
+    # Ensure the extracted CLI binary is executable
+    if not system.is_executable(abs_cli_executable_path):
+        logger.info(
+            f"VS Code CLI at {abs_cli_executable_path} is not executable. Attempting to set permissions."
+        )
+        # Get current permissions first, then add execute bits
+        perm_res = system.get_permissions(abs_cli_executable_path)
+        if perm_res.is_ok and perm_res.value is not None:
+            chmod_res = system.change_permissions(
+                abs_cli_executable_path, perm_res.value | 0o111
+            )  # Add u+x, g+x, o+x
+            if not chmod_res:
+                msg = (
+                    f"Could not set execute permission for {abs_cli_executable_path}: {chmod_res.message}. "
+                    "Tunnel connection might fail."
+                )
+                logger.warning(msg)
+                # Not returning Err here, as Popen might still work if OS allows execution.
+            else:
+                logger.info(f"Set execute permission for {abs_cli_executable_path}")
+        elif perm_res.is_err:
+            logger.warning(
+                f"Could not get permissions for {abs_cli_executable_path} to make it executable: {perm_res.message}"
+            )
+
+        # Re-check after attempting to set permissions
+        if not system.is_executable(abs_cli_executable_path):
+            msg = f"VS Code CLI at {abs_cli_executable_path} is still not executable after attempting chmod."
+            logger.error(msg)
+            return SystemOperationResult.Err(PermissionError(msg), message=msg)
+
+    logger.info(
+        f"VS Code CLI setup successful. Executable at: '{abs_cli_executable_path}'."
+    )
+    return SystemOperationResult.Ok(abs_cli_executable_path)
 
 
 def display_github_auth_link(url: str, code: str) -> None:
@@ -116,10 +178,7 @@ def display_github_auth_link(url: str, code: str) -> None:
     display(HTML(html_content))
 
 
-def display_vscode_connection_options(
-    tunnel_url: str,
-    tunnel_name: str,
-) -> None:
+def display_vscode_connection_options(tunnel_url: str, tunnel_name: str) -> None:
     html_content = render_vscode_connection_template(
         tunnel_url=tunnel_url, tunnel_name=tunnel_name
     )
@@ -128,69 +187,57 @@ def display_vscode_connection_options(
 
 def login(system: System, provider: str = "github") -> bool:
     """
-    Handles the login process for VS Code Tunnel using the specified authentication provider.
-
-    This function ensures that the VS Code CLI is available and executable. If the CLI is not found, it attempts to download it. The function monitors the CLI output to extract the authentication URL and code, which are then displayed to the user.
-
-    Args:
-        provider (str, optional): The authentication provider to use for login. Defaults to "github".
-
-    Returns:
-        bool: True if the login process successfully detects and displays the authentication URL and code, False otherwise.
-
-    Notes:
-        - The function uses a timeout of 60 seconds to monitor the CLI output for the authentication URL and code.
-        - The function assumes success once the authentication URL and code are detected and displayed.
+    Handles the login process for VS Code Tunnel.
+    Returns True on success (auth info displayed), False otherwise.
     """
-    # Path to the CLI executable relative to the current working directory
-    cli_exe_dir_path = system.get_absolute_path("./code")
-    cli_exe_path = system.get_absolute_path(os.path.join(cli_exe_dir_path, "code"))
-
-    if not system.is_executable(cli_exe_path):
-        logger.info(
-            f"VS Code CLI not found/executable at '{cli_exe_path}'. Attempting download for login."
+    cli_download_res = download_vscode_cli(system=system)  # Downloads to CWD by default
+    if not cli_download_res.is_ok or not cli_download_res.value:
+        logger.error(
+            f"VS Code CLI download/setup failed. Cannot perform login. Error: {cli_download_res.message}"
         )
-        if not download_vscode_cli(system=system):
-            logger.error("VS Code CLI download failed. Cannot perform login.")
-            return False
-        # Re-check after download attempt
-        if not system.is_executable(cli_exe_path):
-            logger.error(
-                f"VS Code CLI still not executable at '{cli_exe_path}' after download. Cannot perform login."
-            )
-            return False
+        return False
 
-    cmd_str = f"{cli_exe_path} tunnel user login --provider {provider}"
-    logger.info(f"Initiating VS Code Tunnel login with command: {cmd_str}")
+    cli_exe_abs_path = cli_download_res.value
+
+    # Command list for Popen (avoids shell=True)
+    cmd_list = [cli_exe_abs_path, "tunnel", "user", "login", "--provider", provider]
+    cmd_str_for_log = " ".join(cmd_list)  # For logging
+    logger.info(f"Initiating VS Code Tunnel login with command: {cmd_str_for_log}")
 
     proc = None
     try:
+        # Use CWD of the script/library for Popen, as CLI was downloaded there.
         proc = subprocess.Popen(
-            cmd_str,  # Use the string command with shell=True
-            shell=True,
+            cmd_list,
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stderr=subprocess.STDOUT,  # Combine stderr with stdout
             text=True,
-            bufsize=1,
-            universal_newlines=True,
+            bufsize=1,  # Line buffered
+            universal_newlines=True,  # For text=True
+            cwd=system.get_cwd(),  # Explicitly use current CWD
         )
 
-        if proc.stdout is None:  # Should not happen with stdout=PIPE
-            logger.error("Failed to get login process stdout.")
+        if proc.stdout is None:
+            logger.error("Failed to get login process stdout (proc.stdout is None).")
             if proc:
                 proc.terminate()
+                proc.wait()
             return False
 
         start_time = time.time()
-        timeout_seconds = 60
+        timeout_seconds = 60  # Increased from 60 for robustness
 
-        url_re = re.compile(r"https?://[^\s]+")
-        code_re = re.compile(r"([A-Z0-9]{4,8}-[A-Z0-9]{4,8})")
+        # Regex for GitHub device flow URL and code
+        url_re = re.compile(r"(https?://github\.com/login/device)")
+        code_re = re.compile(
+            r"enter the code\s+([A-Z0-9]{4,}-[A-Z0-9]{4,})"
+        )  # Capture group for the code
+
         auth_url_found: Optional[str] = None
         auth_code_found: Optional[str] = None
 
         logger.info(
-            "Monitoring login process output for authentication URL and code..."
+            "Monitoring login process output for GitHub authentication URL and code..."
         )
         for line in iter(proc.stdout.readline, ""):
             if time.time() - start_time > timeout_seconds:
@@ -201,250 +248,359 @@ def login(system: System, provider: str = "github") -> bool:
                 proc.wait()
                 return False
 
-            logger.debug(f"> {line.strip()}")
+            logger.debug(f"Login STDOUT: {line.strip()}")
+
             if not auth_url_found:
-                um = url_re.search(line)
-                if um and "github.com/login/device" in um.group(0):
-                    auth_url_found = um.group(0)
-                    logger.info(
-                        f"Detected potential authentication URL: {auth_url_found}"
-                    )
+                url_match = url_re.search(line)
+                if url_match:
+                    auth_url_found = url_match.group(1)
+                    logger.info(f"Detected authentication URL: {auth_url_found}")
+
             if not auth_code_found:
-                cm = code_re.search(line)
-                if cm:
-                    auth_code_found = cm.group(0)
-                    logger.info(
-                        f"Detected potential authentication code: {auth_code_found}"
-                    )
+                code_match = code_re.search(line)
+                if code_match:
+                    auth_code_found = code_match.group(1)
+                    logger.info(f"Detected authentication code: {auth_code_found}")
 
             if auth_url_found and auth_code_found:
+                logger.info("Authentication URL and code detected. Displaying to user.")
                 display_github_auth_link(auth_url_found, auth_code_found)
-                return True  # Assume success once info is displayed
+                # The process should continue running in the background until login is complete or it times out/fails.
+                return True
 
-            if proc.poll() is not None:
-                logger.info("Login process ended.")
+            if proc.poll() is not None:  # Process ended
+                logger.info(
+                    "Login process ended before URL and code were found or fully processed."
+                )
                 break
 
-        # The stdout was closed and we didn't find the URL and code
+        # Loop ended (either EOF or process terminated)
         if not (auth_url_found and auth_code_found):
             logger.error(
-                "Failed to detect GitHub authentication URL and code from CLI output."
+                "Failed to detect GitHub authentication URL and code from CLI output before process ended."
             )
-            if proc.poll() is None:
+            if proc and proc.poll() is None:  # If somehow still running
                 proc.terminate()
                 proc.wait()
             return False
-        return True
 
-    except FileNotFoundError:
+        # Should have returned True inside the loop if both found
+        return False  # Fallback
+
+    except FileNotFoundError:  # For cli_exe_abs_path
         logger.error(
-            f"VS Code CLI ('{cli_exe_path}') not found by Popen. Ensure it's in CWD or PATH for Popen."
+            f"VS Code CLI ('{cli_exe_abs_path}') not found by Popen. Ensure it's downloaded and executable."
         )
         return False
     except Exception as e:
-        logger.exception(f"Error during login: {e}")
+        logger.exception(
+            f"An unexpected error occurred during VS Code Tunnel login: {e}"
+        )
         if proc and proc.poll() is None:
             proc.terminate()
             proc.wait()
         return False
 
 
-def connect(
+def _configure_environment_for_tunnel(
     system: System,
-    name: str = "colab",
-    include_default_extensions: bool = True,
-    extensions: Optional[List[str]] = None,
-    git_user_name: Optional[str] = None,
-    git_user_email: Optional[str] = None,
-    setup_python_version: Optional[str] = None,
-    force_python_reinstall: bool = False,
-    create_new_project: Optional[str] = None,
-    new_project_base_path: str = ".",
-    venv_name_for_project: str = ".venv",
-) -> Optional[subprocess.Popen]:
+    git_user_name: Optional[str],
+    git_user_email: Optional[str],
+    setup_python_version: Optional[str],
+    force_python_reinstall: bool,
+    attempt_pyenv_dependency_install: bool,
+    create_new_project: Optional[str],
+    new_project_base_path: str,
+    venv_name_for_project: str,
+) -> Tuple[SystemOperationResult[str, Exception], str]:
     """
-    Establishes a VS Code tunnel connection, optionally configuring Python, Git, and project setup.
-
-    Args:
-        name (str, optional): The name of the VS Code tunnel. Defaults to "colab".
-        include_default_extensions (bool, optional): Whether to include default VS Code extensions. Defaults to True.
-        extensions (Optional[List[str]], optional): Additional VS Code extensions to install.
-        git_user_name (Optional[str], optional): Git user name for configuration. Both `git_user_name` and `git_user_email` must be provided to configure Git. Defaults to None.
-        git_user_email (Optional[str], optional): Git user email for configuration. Both `git_user_name` and `git_user_email` must be provided to configure Git. Defaults to None.
-        setup_python_version (Optional[str], optional): Python version to set up using pyenv. Defaults to None.
-        force_python_reinstall (bool, optional): Whether to force reinstall the specified Python version. Defaults to False.
-        create_new_project (Optional[str], optional): Name of a new project to create. If provided, a new project directory will be set up. Defaults to None.
-        new_project_base_path (str, optional): Base path for creating the new project. Defaults to the current directory ".".
-        venv_name_for_project (str, optional): Name of the virtual environment directory for the project. Defaults to ".venv".
-
-    Returns:
-        Optional[subprocess.Popen]: A subprocess.Popen object representing the tunnel process if successful, or None if the connection could not be established.
-
-    Notes:
-        - This function attempts to download and configure the VS Code CLI if it is not already available.
-        - If a specific Python version is requested, it will attempt to set it up using pyenv.
-        - If a new project is created, the working directory for the tunnel will be set to the project's path.
-        - The function monitors the tunnel process output to detect the connection URL and logs it.
-        - If the tunnel process fails to start or the URL is not detected within a timeout, the process is terminated.
+    Handles Git configuration, pyenv setup, and project creation.
+    Returns a tuple: (SOR for python_executable_for_venv, project_path_for_tunnel_cwd).
+    The SOR's value for python_executable_for_venv will be the path if pyenv setup was successful,
+    otherwise it's an error. The project_path_for_tunnel_cwd is the CWD to use for the tunnel.
     """
-    if not download_vscode_cli(system, force_download=False):
-        logger.error("VS Code CLI not available, cannot start tunnel.")
-        return None
+    # Default Python executable for creating venvs if pyenv setup is skipped or fails
+    default_python_for_venv = "python3"
+    python_executable_for_venv_res: SystemOperationResult[str, Exception] = (
+        SystemOperationResult.Ok(default_python_for_venv)
+    )
 
-    if git_user_name and git_user_email:  # Both must be provided
-        configure_git(system, git_user_name, git_user_email)
-
-    python_executable_for_venv = "python3"
-    # Determine CWD for the tunnel. Default to current dir from system perspective.
+    # Determine CWD for the tunnel. Default to current dir.
     project_path_for_tunnel_cwd = system.get_cwd()
+
+    if git_user_name and git_user_email:
+        git_config_res = configure_git(system, git_user_name, git_user_email)
+        if not git_config_res:
+            logger.warning(
+                f"Git configuration failed: {git_config_res.message}. Continuing..."
+            )
 
     if setup_python_version:
         logger.info(
             f"Attempting to set up Python version: {setup_python_version} using pyenv."
         )
-
         pyenv_manager = PythonEnvManager(system=system)
-
-        pyenv_res = pyenv_manager.setup_and_get_python_executable(
+        pyenv_python_exe_res = pyenv_manager.setup_and_get_python_executable(
             python_version=setup_python_version,
             force_reinstall_python=force_python_reinstall,
+            attempt_pyenv_dependency_install=attempt_pyenv_dependency_install,
         )
 
-        if pyenv_res:
-            python_executable_for_venv = pyenv_res.value
+        if pyenv_python_exe_res.is_ok and pyenv_python_exe_res.value:
             logger.info(
-                f"Using pyenv Python '{python_executable_for_venv}' for subsequent venv creation."
+                f"Using pyenv Python '{pyenv_python_exe_res.value}' for subsequent venv creation."
+            )
+            python_executable_for_venv_res = SystemOperationResult.Ok(
+                pyenv_python_exe_res.value
             )
         else:
-            logger.warning(
-                f"Failed to set up pyenv Python {setup_python_version}. Using default '{python_executable_for_venv}'."
+            msg = (
+                f"Failed to set up pyenv Python {setup_python_version}: {pyenv_python_exe_res.message}. "
+                f"Will use default '{default_python_for_venv}' for venv creation if applicable."
             )
+            logger.warning(msg)
+            python_executable_for_venv_res = SystemOperationResult.Err(
+                pyenv_python_exe_res.error or Exception("Pyenv setup failed"),
+                message=pyenv_python_exe_res.message,
+            )
+            # Even if pyenv fails, we still use the default python for project venv creation.
+
+    current_python_for_venv = (
+        python_executable_for_venv_res.value
+        if python_executable_for_venv_res.is_ok
+        else default_python_for_venv
+    )
 
     if create_new_project:
         logger.info(
             f"Attempting to create project: '{create_new_project}' at '{new_project_base_path}'."
         )
+        # setup_project_directory expects an absolute base_path if provided, or uses CWD.
+        # Here, new_project_base_path is relative to the CWD when `connect` was called.
         abs_new_project_base_path = system.get_absolute_path(new_project_base_path)
-        created_project_path = setup_project_directory(
+
+        project_setup_res = setup_project_directory(
             system,
             project_name=create_new_project,
-            base_path=abs_new_project_base_path,
-            python_executable=python_executable_for_venv,
+            base_path=abs_new_project_base_path,  # Pass absolute path
+            python_executable=current_python_for_venv,  # Use result from pyenv setup or default
             venv_name=venv_name_for_project,
         )
-        if created_project_path:
+        if project_setup_res.is_ok and project_setup_res.value:
             logger.info(
-                f"Successfully created project at '{created_project_path}'. Tunnel CWD set."
+                f"Successfully created project at '{project_setup_res.value}'. Tunnel CWD set."
             )
-            project_path_for_tunnel_cwd = created_project_path
+            project_path_for_tunnel_cwd = project_setup_res.value
         else:
-            logger.warning(
-                f"Failed to create project '{create_new_project}'. Tunnel CWD: {project_path_for_tunnel_cwd}."
+            msg = (
+                f"Failed to create project '{create_new_project}': {project_setup_res.message}. "
+                f"Tunnel will use CWD: {project_path_for_tunnel_cwd}."
             )
+            logger.warning(msg)
+            # Project creation failure is not necessarily fatal for the tunnel itself, it will just run in original CWD.
 
+    return python_executable_for_venv_res, project_path_for_tunnel_cwd
+
+
+def _prepare_vscode_tunnel_command(
+    cli_executable_path: str,  # Absolute path to 'code' executable
+    tunnel_name: str,
+    include_default_extensions: bool,
+    custom_extensions: Optional[List[str]],
+) -> List[str]:
+    """Prepares the command list for launching the VS Code tunnel."""
     final_extensions: Set[str] = set()
     if include_default_extensions:
         final_extensions.update(DEFAULT_EXTENSIONS)
-    if extensions:
-        final_extensions.update(extensions)
-
-    initial_cwd_of_script = system.get_cwd()
-    cli_dir_abs_path = system.get_absolute_path(os.path.join(system.get_cwd(), "code"))
-    cli_exe_abs_path = system.get_absolute_path(os.path.join(cli_dir_abs_path, "code"))
-
-    if not system.is_executable(cli_exe_abs_path):
-        logger.error(
-            f"VS Code CLI binary not found or not executable at {cli_exe_abs_path}. This might happen if CWD changed after download."
-        )
-        logger.info(
-            "Attempting to download VS Code CLI again into current CWD for connect..."
-        )
-        if not download_vscode_cli(
-            system, force_download=True
-        ):  # Force download into current CWD
-            logger.error("VS Code CLI re-download failed. Cannot start tunnel.")
-            return None
-        cli_exe_for_popen = system.get_absolute_path("./code/code")
-        if not system.is_executable(cli_exe_for_popen):
-            logger.error(f"VS Code CLI still not executable at '{cli_exe_for_popen}'.")
-            return None
-    else:
-        cli_exe_for_popen = cli_exe_abs_path
+    if custom_extensions:
+        final_extensions.update(custom_extensions)
 
     cmd_list = [
-        cli_exe_for_popen,
+        cli_executable_path,
         "tunnel",
-        "--accept-server-license-terms",
+        "--accept-server-license-terms",  # Required for unattended execution
         "--name",
-        name,
+        tunnel_name,
     ]
     if final_extensions:
         for ext_id in sorted(list(final_extensions)):
             cmd_list.extend(["--install-extension", ext_id])
 
-    logger.info(f"Starting VS Code tunnel with command: {' '.join(cmd_list)}")
-    logger.info(f"Tunnel will run with CWD: {project_path_for_tunnel_cwd}")
+    return cmd_list
 
-    proc = None
+
+def _launch_and_monitor_tunnel(
+    command_list: List[str],
+    tunnel_cwd: str,  # Absolute path for CWD
+    tunnel_name: str,  # For display purposes
+    timeout_seconds: int = 60,  # Timeout for detecting URL
+) -> Optional[subprocess.Popen]:
+    """
+    Launches the VS Code tunnel command and monitors its output for the connection URL.
+    Returns the Popen object if URL is detected, None otherwise.
+    """
+    logger.info(f"Starting VS Code tunnel with command: {' '.join(command_list)}")
+    logger.info(f"Tunnel will run with CWD: {tunnel_cwd}")
+
+    proc: Optional[subprocess.Popen] = None
     try:
         proc = subprocess.Popen(
-            cmd_list,
+            command_list,
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stderr=subprocess.STDOUT,  # Merge stderr to stdout
             text=True,
-            bufsize=1,
+            bufsize=1,  # Line buffered
             universal_newlines=True,
-            cwd=project_path_for_tunnel_cwd,
+            cwd=tunnel_cwd,  # Set the CWD for the tunnel process
         )
-        if proc.stdout is None:
-            logger.error("Failed to get tunnel process stdout.")
+
+        if proc.stdout is None:  # Should not happen with PIPE
+            logger.error("Failed to get tunnel process stdout (proc.stdout is None).")
             if proc:
                 proc.terminate()
+                proc.wait()
             return None
 
         start_time = time.time()
-        timeout_seconds = 60
+        # Regex for vscode.dev tunnel URL
+        url_re = re.compile(r"(https://vscode\.dev/tunnel/[^\s/]+(?:/[^\s/]+)?)")
 
-        url_re = re.compile(r"https://vscode\.dev/tunnel/[\w-]+(?:/[\w-]+)?")
-
-        logger.info("Monitoring tunnel process output for connection URL...")
+        logger.info(
+            f"Monitoring tunnel '{tunnel_name}' process output for connection URL..."
+        )
         for line in iter(proc.stdout.readline, ""):
             if time.time() - start_time > timeout_seconds:
                 logger.error(
-                    f"Tunnel URL not detected within {timeout_seconds}s. Timing out."
+                    f"Tunnel URL for '{tunnel_name}' not detected within {timeout_seconds}s. Timing out."
                 )
-                proc.terminate()
-                proc.wait()
-                return None
-            logger.debug(f"Tunnel output: {line.strip()}")
-            m = url_re.search(line)
-            if m:
-                tunnel_url = m.group(0)
-                logger.info(f"VS Code Tunnel URL detected: {tunnel_url}")
-                display_vscode_connection_options(tunnel_url, name)
-                return proc
-            if proc.poll() is not None:
-                logger.error("Tunnel process exited prematurely before URL detected.")
-                if proc.stdout:
-                    logger.debug(proc.stdout.read().strip())
+                if proc:  # Check proc again as it might be None if Popen failed
+                    proc.terminate()
+                    proc.wait()
                 return None
 
-        # EOF reached
-        if proc.poll() is not None:
-            logger.error("Tunnel process ended before URL detected (EOF).")
-        else:
-            logger.error("Tunnel URL not detected (EOF or unknown state).")
+            logger.debug(f"Tunnel '{tunnel_name}' STDOUT: {line.strip()}")
+            match = url_re.search(line)
+            if match:
+                tunnel_url = match.group(1)
+                # Ensure it's not the generic access grant URL if we expect a named tunnel URL
+                if (
+                    tunnel_name.lower() in tunnel_url.lower()
+                    or "tunnel" not in tunnel_url.lower()
+                ):
+                    logger.info(
+                        f"VS Code Tunnel URL for '{tunnel_name}' detected: {tunnel_url}"
+                    )
+                    display_vscode_connection_options(tunnel_url, tunnel_name)
+                    return proc  # Return the running process
+                else:
+                    logger.debug(
+                        f"Detected a vscode.dev URL but it might be for access grant: {tunnel_url}"
+                    )
+
+            if proc.poll() is not None:  # Process ended
+                logger.error(
+                    f"Tunnel process '{tunnel_name}' exited prematurely (RC: {proc.returncode}) before URL was detected."
+                )
+                # Log remaining output if any
+                if proc.stdout:  # Check if stdout is still available
+                    remaining_output = proc.stdout.read()
+                    if remaining_output:
+                        logger.debug(
+                            f"Remaining output from tunnel '{tunnel_name}':\n{remaining_output.strip()}"
+                        )
+                return None
+
+        # Loop ended (EOF on stdout)
+        logger.error(
+            f"Tunnel process '{tunnel_name}' stdout stream ended before URL was detected."
+        )
+        if proc and proc.poll() is None:  # If somehow still running
             proc.terminate()
             proc.wait()
         return None
-    except FileNotFoundError:
+
+    except FileNotFoundError:  # For the CLI command itself
         logger.error(
-            f"VS Code CLI ('{cli_exe_for_popen}') not found by Popen. Ensure it is in CWD or PATH."
+            f"VS Code CLI ('{command_list[0]}') not found by Popen. Tunnel CWD: {tunnel_cwd}."
         )
         return None
     except Exception as e:
-        logger.exception(f"Error starting tunnel: {e}")
+        logger.exception(
+            f"An unexpected error occurred while starting or monitoring tunnel '{tunnel_name}': {e}"
+        )
         if proc and proc.poll() is None:
             proc.terminate()
             proc.wait()
         return None
+
+
+def connect(
+    system: System,
+    name: str = "colab",  # Name of the tunnel
+    include_default_extensions: bool = True,
+    extensions: Optional[List[str]] = None,  # Custom extensions
+    git_user_name: Optional[str] = None,
+    git_user_email: Optional[str] = None,
+    setup_python_version: Optional[str] = None,  # e.g., "3.9"
+    force_python_reinstall: bool = False,
+    attempt_pyenv_dependency_install: bool = True,  # Attempt to install pyenv OS deps
+    create_new_project: Optional[str] = None,  # Name of project dir to create
+    new_project_base_path: str = ".",  # Base path for new project (relative to initial CWD)
+    venv_name_for_project: str = ".venv",  # Name of venv dir inside project
+) -> Optional[subprocess.Popen]:
+    """
+    Establishes a VS Code tunnel connection with optional environment setup.
+    """
+    # Ensure VS Code CLI is available. Download/setup happens in CWD of this script.
+    # This CWD needs to be stable for the CLI to be found later by Popen.
+    initial_script_cwd = system.get_cwd()
+    logger.info(f"Initial CWD for connect operation: {initial_script_cwd}")
+
+    cli_download_res = download_vscode_cli(system, force_download=False)
+    if not cli_download_res.is_ok or not cli_download_res.value:
+        logger.error(
+            f"VS Code CLI is not available, cannot start tunnel. Error: {cli_download_res.message}"
+        )
+        return None
+
+    # cli_download_res.value is the absolute path to the 'code' executable
+    cli_executable_abs_path = cli_download_res.value
+
+    # Step 1: Configure environment (Git, Python via pyenv, Project directory)
+    # This helper returns the Python executable to use for venv and the CWD for the tunnel.
+    _py_exec_res, tunnel_run_cwd = _configure_environment_for_tunnel(
+        system,
+        git_user_name,
+        git_user_email,
+        setup_python_version,
+        force_python_reinstall,
+        attempt_pyenv_dependency_install,
+        create_new_project,
+        new_project_base_path,  # This is relative to initial_script_cwd
+        venv_name_for_project,
+    )
+
+    # Step 2: Prepare the VS Code tunnel command
+    # The CLI executable path is absolute, found/downloaded relative to initial_script_cwd.
+    command_list = _prepare_vscode_tunnel_command(
+        cli_executable_path=cli_executable_abs_path,
+        tunnel_name=name,
+        include_default_extensions=include_default_extensions,
+        custom_extensions=extensions,
+    )
+
+    # Step 3: Launch and monitor the tunnel
+    # The tunnel_run_cwd is where the 'code tunnel' command will execute.
+    # This is important if the tunnel creates files or expects to be in a project dir.
+    tunnel_proc = _launch_and_monitor_tunnel(
+        command_list,
+        tunnel_cwd=tunnel_run_cwd,  # Use the determined CWD
+        tunnel_name=name,
+    )
+
+    if not tunnel_proc:
+        logger.error(f"Failed to establish VS Code tunnel '{name}'.")
+        return None
+
+    logger.info(f"VS Code tunnel '{name}' process started successfully.")
+    return tunnel_proc
