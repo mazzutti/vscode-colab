@@ -1,4 +1,5 @@
 import os
+import tempfile
 from typing import Dict, List, Optional, Set
 
 from vscode_colab.logger_config import log as logger
@@ -161,93 +162,113 @@ class PythonEnvManager:
                     f"Failed to install pyenv dependencies: {deps_res.message}. Pyenv installation might fail."
                 )
 
-        mkd_res = self.system.make_dirs(self.pyenv_root)  # exist_ok=True by default
-        if not mkd_res:
-            return SystemOperationResult.Err(
-                mkd_res.error or Exception("Failed to create PYENV_ROOT"),
-                message=f"Failed to create PYENV_ROOT directory {self.pyenv_root}: {mkd_res.message}",
-            )
+        # The pyenv installer script expects to create PYENV_ROOT or find it as a valid git repo.
 
-        installer_script_path_in_root = self.system.get_absolute_path(
-            os.path.join(self.pyenv_root, INSTALLER_SCRIPT_NAME)
-        )
-
-        download_res = self.system.download_file(
-            PYENV_INSTALLER_URL, installer_script_path_in_root
-        )
-        if not download_res:
-            self.system.remove_file(
-                installer_script_path_in_root, missing_ok=True, log_success=False
-            )
-            return SystemOperationResult.Err(
-                download_res.error or Exception("Download failed"),
-                message=f"Failed to download pyenv installer from {PYENV_INSTALLER_URL}: {download_res.message}",
-            )
-
-        bash_exe = self.system.which("bash")
-        if not bash_exe:
-            err = FileNotFoundError(
-                "bash not found, cannot execute pyenv installer script."
-            )
-            self.system.remove_file(
-                installer_script_path_in_root, missing_ok=True, log_success=False
-            )
-            return SystemOperationResult.Err(err)
-
-        installer_cmd = [bash_exe, installer_script_path_in_root]
-        # PYENV_ROOT is often set as an env var for the installer script itself
-        pyenv_installer_env = os.environ.copy()
-        pyenv_installer_env["PYENV_ROOT"] = self.pyenv_root
-        # Some installers might also respect GIT_DIR or other vars, but PYENV_ROOT is key.
-
-        logger.info(
-            f"Executing pyenv installer script: {installer_script_path_in_root}"
-        )
+        temp_installer_script_path: Optional[str] = None
         try:
+            # Create a temporary file to download the installer script to.
+            # We use delete=False because we need to pass the name to an external command (bash).
+            # We will manually delete it in the finally block.
+            with tempfile.NamedTemporaryFile(
+                delete=False, suffix=".sh", prefix="pyenv-installer-"
+            ) as tf:
+                temp_installer_script_path = tf.name
+
+            logger.debug(
+                f"Downloading pyenv installer to temporary path: {temp_installer_script_path}"
+            )
+            download_res = self.system.download_file(
+                PYENV_INSTALLER_URL, temp_installer_script_path
+            )
+            if not download_res:
+                return SystemOperationResult.Err(
+                    download_res.error or Exception("Download failed"),
+                    message=f"Failed to download pyenv installer from {PYENV_INSTALLER_URL} to {temp_installer_script_path}: {download_res.message}",
+                )
+
+            bash_exe = self.system.which("bash")
+            if not bash_exe:
+                err = FileNotFoundError(
+                    "bash not found, cannot execute pyenv installer script."
+                )
+                logger.error(err.args[0])
+                return SystemOperationResult.Err(err, message=err.args[0])
+
+            installer_cmd = [bash_exe, temp_installer_script_path]
+            # PYENV_ROOT is often set as an env var for the installer script itself
+            pyenv_installer_env = os.environ.copy()
+            pyenv_installer_env["PYENV_ROOT"] = self.pyenv_root
+
+            logger.info(
+                f"Executing pyenv installer script: {' '.join(installer_cmd)} with PYENV_ROOT={self.pyenv_root}"
+            )
+
             installer_proc_result = self.system.run_command(
                 installer_cmd,
                 env=pyenv_installer_env,
                 capture_output=True,
                 text=True,
-                check=False,
+                check=False,  # We check returncode manually
             )
-        except Exception as e_install_run:
-            self.system.remove_file(
-                installer_script_path_in_root, missing_ok=True, log_success=False
+
+            if installer_proc_result.returncode != 0:
+                err_msg = [
+                    f"Pyenv installer script failed (RC: {installer_proc_result.returncode})."
+                ]
+                if installer_proc_result.stdout:
+                    err_msg.append(
+                        f"Pyenv installer script stdout: {installer_proc_result.stdout.strip()}"
+                    )
+                if installer_proc_result.stderr:
+                    err_msg.append(
+                        f"Pyenv installer script stderr: {installer_proc_result.stderr.strip()}"
+                    )
+                err_msg = "\n".join(err_msg)
+
+                logger.error(err_msg)
+                return SystemOperationResult.Err(
+                    Exception("Pyenv installer script failed"), message=err_msg
+                )
+
+            if installer_proc_result.stdout:
+                logger.info(
+                    f"pyenv installer stdout: {installer_proc_result.stdout.strip()}"
+                )
+            if installer_proc_result.stderr:
+                logger.error(
+                    f"pyenv installer stderr: {installer_proc_result.stderr.strip()}"
+                )
+
+            if not self.system.is_executable(self.pyenv_executable_path):
+                err = Exception(
+                    f"Pyenv installer script ran, but pyenv executable not found at {self.pyenv_executable_path}."
+                )
+                logger.error(err.args[0])
+                return SystemOperationResult.Err(err, message=err.args[0])
+
+            logger.info(
+                f"pyenv installed successfully into {self.pyenv_root}. Executable: {self.pyenv_executable_path}"
+            )
+            return SystemOperationResult.Ok(value=self.pyenv_executable_path)
+
+        except (
+            Exception
+        ) as e_install_run:  # Catch exceptions from run_command or other operations
+            logger.error(
+                f"An exception occurred during pyenv installation process: {e_install_run}"
             )
             return SystemOperationResult.Err(
                 e_install_run,
-                message=f"Pyenv installer script execution failed: {e_install_run}",
+                message=f"Pyenv installation process failed: {e_install_run}",
             )
-
-        self.system.remove_file(
-            installer_script_path_in_root, missing_ok=True, log_success=False
-        )
-
-        if installer_proc_result.returncode != 0:
-            err_msg = (
-                f"Pyenv installer script failed (RC: {installer_proc_result.returncode})."
-                f"Stdout: {(installer_proc_result.stdout or '').strip()} Stderr: {(installer_proc_result.stderr or '').strip()}"
-            )
-            logger.error(err_msg)
-            return SystemOperationResult.Err(
-                Exception("Pyenv installer script failed"), message=err_msg
-            )
-
-        logger.debug(f"pyenv installer stdout: {installer_proc_result.stdout.strip()}")
-        if installer_proc_result.stderr.strip():
-            logger.debug(
-                f"pyenv installer stderr: {installer_proc_result.stderr.strip()}"
-            )
-
-        if not self.system.is_executable(self.pyenv_executable_path):
-            err = Exception(
-                f"Pyenv script ran, but executable not found at {self.pyenv_executable_path}."
-            )
-            return SystemOperationResult.Err(err)
-
-        logger.info("pyenv installed successfully.")
-        return SystemOperationResult.Ok(value=self.pyenv_executable_path)
+        finally:
+            if temp_installer_script_path:
+                logger.debug(
+                    f"Removing temporary installer script: {temp_installer_script_path}"
+                )
+                self.system.remove_file(
+                    temp_installer_script_path, missing_ok=True, log_success=False
+                )
 
     @property
     def is_pyenv_installed(self) -> bool:
