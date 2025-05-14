@@ -227,7 +227,7 @@ class PythonEnvManager:
         if installer_proc_result.returncode != 0:
             err_msg = (
                 f"Pyenv installer script failed (RC: {installer_proc_result.returncode})."
-                f"Stdout: {installer_proc_result.stdout.strip()} Stderr: {installer_proc_result.stderr.strip()}"
+                f"Stdout: {(installer_proc_result.stdout or '').strip()} Stderr: {(installer_proc_result.stderr or '').strip()}"
             )
             logger.error(err_msg)
             return SystemOperationResult.Err(
