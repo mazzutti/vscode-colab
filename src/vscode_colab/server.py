@@ -46,13 +46,11 @@ def download_vscode_cli(
 
     cli_tarball_name = "vscode_cli_alpine_x64.tar.gz"  # More specific name
 
-    # Paths relative to current CWD where download and extraction happen
-    # The server.py functions assume they operate from a specific CWD.
-    abs_cli_dir_path = system.get_absolute_path(cli_dir_name)
-    abs_cli_executable_path = system.get_absolute_path(
-        os.path.join(abs_cli_dir_path, cli_executable_name_in_dir)
-    )
-    abs_cli_tarball_path = system.get_absolute_path(cli_tarball_name)
+    # Always use the true current working directory for extraction and lookup
+    cwd = system.get_cwd()
+    abs_cli_dir_path = os.path.join(cwd, cli_dir_name)
+    abs_cli_executable_path = os.path.join(abs_cli_dir_path, cli_executable_name_in_dir)
+    abs_cli_tarball_path = os.path.join(cwd, cli_tarball_name)
 
     if system.is_executable(abs_cli_executable_path) and not force_download:
         logger.info(
@@ -101,8 +99,9 @@ def download_vscode_cli(
     ]  # -x: extract, -z: gzip, -f: file
 
     try:
+        # Ensure extraction happens in the correct directory
         extract_proc = system.run_command(
-            extract_cmd, capture_output=True, text=True, check=False
+            extract_cmd, capture_output=True, text=True, check=False, cwd=cwd
         )
     except Exception as e_extract_run:
         system.remove_file(abs_cli_tarball_path, missing_ok=True, log_success=False)
