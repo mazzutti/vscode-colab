@@ -51,7 +51,6 @@ class System:
                 command,
                 cwd=cwd,
                 env=env,
-                capture_output=capture_output,
                 text=text,
                 check=check,  # Let subprocess.run handle raising CalledProcessError if check is True
                 stdout=stdout_pipe,
