@@ -11,6 +11,7 @@ from IPython.display import HTML
 from vscode_colab.environment import PythonEnvManager  # For type hinting if needed
 from vscode_colab.server import (
     DEFAULT_EXTENSIONS,
+    VSCODE_COLAB_LOGIN_ENV_VAR,
     _configure_environment_for_tunnel,
     _launch_and_monitor_tunnel,
     _prepare_vscode_tunnel_command,
@@ -52,8 +53,9 @@ def mock_display_server(monkeypatch):
 # --- Tests for download_vscode_cli ---
 CLI_DIR_NAME = "code"
 CLI_EXE_NAME_IN_DIR = "code"
-ABS_CLI_DIR_PATH = f"/abs/{CLI_DIR_NAME}"  # From mock_system_server.get_absolute_path
-ABS_CLI_EXE_PATH = f"{ABS_CLI_DIR_PATH}/{CLI_EXE_NAME_IN_DIR}"
+MOCK_CWD = "/current/test/dir"
+ABS_CLI_DIR_PATH = f"{MOCK_CWD}/{CLI_DIR_NAME}"
+ABS_CLI_EXE_PATH = f"{MOCK_CWD}/{CLI_EXE_NAME_IN_DIR}"
 
 
 def test_download_vscode_cli_already_exists_executable(mock_system_server):
@@ -476,6 +478,8 @@ def test_connect_main_flow_success(
     mock_tunnel_proc = MagicMock(spec=subprocess.Popen)
     mock_launch_monitor.return_value = mock_tunnel_proc
 
+    # Patch environment variable for login
+    os.environ[VSCODE_COLAB_LOGIN_ENV_VAR] = "true"
     result = connect(mock_system_server, name="my-test-tunnel")
 
     assert result == mock_tunnel_proc

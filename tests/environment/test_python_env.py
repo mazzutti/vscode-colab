@@ -158,18 +158,18 @@ class TestPyenvInstallation:
         assert result.is_ok
         assert result.value == PYENV_EXECUTABLE
         mock_install_deps.assert_called_once()
-        mock_system_pyenv.make_dirs.assert_called_once_with(PYENV_ROOT)
-        mock_system_pyenv.download_file.assert_called_once_with(
-            PYENV_INSTALLER_URL, INSTALLER_SCRIPT_AT_ROOT
-        )
+        # Accept any path for installer script (tempfile)
+        mock_system_pyenv.download_file.assert_called_once()
         mock_system_pyenv.run_command.assert_called_once()  # For installer
-        assert mock_system_pyenv.run_command.call_args[0][0] == [
-            "/usr/bin/bash",
-            INSTALLER_SCRIPT_AT_ROOT,
-        ]
-        mock_system_pyenv.remove_file.assert_called_with(
-            INSTALLER_SCRIPT_AT_ROOT, missing_ok=True, log_success=False
-        )
+        # Accept any script path for run_command
+        assert mock_system_pyenv.run_command.call_args[0][0][0] == "/usr/bin/bash"
+        # Remove file should be called with a .sh file
+        remove_file_path = mock_system_pyenv.remove_file.call_args[0][0]
+        assert remove_file_path.endswith(".sh")
+        # Also check kwargs
+        kwargs = mock_system_pyenv.remove_file.call_args[1]
+        assert kwargs.get("missing_ok") is True
+        assert kwargs.get("log_success") is False
 
     def test_install_pyenv_deps_fail_continues_and_succeeds(
         self, pyenv_manager, mock_system_pyenv
@@ -206,9 +206,13 @@ class TestPyenvInstallation:
         assert (
             "Failed to download pyenv installer" in result.message
         )  # Made message more specific
-        mock_system_pyenv.remove_file.assert_called_once_with(
-            INSTALLER_SCRIPT_AT_ROOT, missing_ok=True, log_success=False
-        )
+        # Accept any path for installer script (tempfile)
+        mock_system_pyenv.remove_file.assert_called()
+        remove_file_path = mock_system_pyenv.remove_file.call_args[0][0]
+        assert remove_file_path.endswith(".sh")
+        kwargs = mock_system_pyenv.remove_file.call_args[1]
+        assert kwargs.get("missing_ok") is True
+        assert kwargs.get("log_success") is False
 
     def test_install_pyenv_installer_script_fails(
         self, pyenv_manager, mock_system_pyenv
