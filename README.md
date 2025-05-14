@@ -128,7 +128,7 @@ By default, `vscode-colab` installs the following Visual Studio Code extensions 
 
 ## ⚠️ Important Notes
 
-- **Notebook Cell Blocking:** The `connect()` function maintains an active tunnel connection and will block notebook cell execution. Interrupting the cell or closing the notebook tab will terminate the connection.
+- **Closing the notebook tab will terminate the connection.**
 - **Kaggle Clipboard Limitation:** On Kaggle, the copy-to-clipboard button will display "Copy Failed" in red due to sandbox restrictions. Manually select and copy the displayed code.
 
 ## 🧪 Testing
