@@ -49,7 +49,7 @@ def download_vscode_cli(
     # Always use the true current working directory for extraction and lookup
     cwd = system.get_cwd()
     abs_cli_dir_path = os.path.join(cwd, cli_dir_name)
-    abs_cli_executable_path = os.path.join(abs_cli_dir_path, cli_executable_name_in_dir)
+    abs_cli_executable_path = os.path.join(cwd, cli_executable_name_in_dir)
     abs_cli_tarball_path = os.path.join(cwd, cli_tarball_name)
 
     if system.is_executable(abs_cli_executable_path) and not force_download:
