@@ -32,6 +32,8 @@ DEFAULT_EXTENSIONS: Set[str] = {
     "ms-toolsai.tensorboard",
 }
 
+VSCODE_COLAB_LOGIN_ENV_VAR = "VSCODE_COLAB_LOGGED_IN"
+
 
 def download_vscode_cli(
     system: System, force_download: bool = False
@@ -189,6 +191,20 @@ def login(system: System, provider: str = "github") -> bool:
     Handles the login process for VS Code Tunnel.
     Returns True on success (auth info displayed), False otherwise.
     """
+    # Clear any previous login flag at the start of a new login attempt
+    if os.environ.get(VSCODE_COLAB_LOGIN_ENV_VAR):
+        del os.environ[VSCODE_COLAB_LOGIN_ENV_VAR]
+    if _login(system, provider):
+        # Set environment variable on successful detection of auth info
+        os.environ[VSCODE_COLAB_LOGIN_ENV_VAR] = "true"
+        logger.info(
+            f"Login successful: Set environment variable {VSCODE_COLAB_LOGIN_ENV_VAR}=true"
+        )
+        return True
+    return False
+
+
+def _login(system: System, provider: str = "github") -> bool:
     cli_download_res = download_vscode_cli(system=system)  # Downloads to CWD by default
     if not cli_download_res.is_ok or not cli_download_res.value:
         logger.error(
@@ -550,6 +566,13 @@ def connect(
     """
     Establishes a VS Code tunnel connection with optional environment setup.
     """
+    # Check for login status
+    if os.environ.get(VSCODE_COLAB_LOGIN_ENV_VAR) != "true":
+        logger.error(
+            "Login required: Please run the login() function before attempting to connect."
+        )
+        return None
+
     # Ensure VS Code CLI is available. Download/setup happens in CWD of this script.
     # This CWD needs to be stable for the CLI to be found later by Popen.
     initial_script_cwd = system.get_cwd()
