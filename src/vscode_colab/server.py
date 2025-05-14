@@ -245,7 +245,7 @@ def _login(system: System, provider: str = "github") -> bool:
         # Regex for GitHub device flow URL and code
         url_re = re.compile(r"(https?://github\.com/login/device)")
         code_re = re.compile(
-            r"enter the code\s+([A-Z0-9]{4,}-[A-Z0-9]{4,})"
+            r"\s+([A-Z0-9]{4,}-[A-Z0-9]{4,})"
         )  # Capture group for the code
 
         auth_url_found: Optional[str] = None
