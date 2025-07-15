@@ -239,7 +239,7 @@ def _login(system: System, provider: str = "github") -> Tuple[bool, str, str]:
             if proc:
                 proc.terminate()
                 proc.wait()
-            return False, auth_code_found, auth_code_found
+            return False, auth_code_found, auth_url_found
 
         start_time = time.time()
         timeout_seconds = 60  # Increased from 60 for robustness
@@ -260,7 +260,7 @@ def _login(system: System, provider: str = "github") -> Tuple[bool, str, str]:
                 )
                 proc.terminate()
                 proc.wait()
-                return False, auth_code_found, auth_code_found
+                return False, auth_code_found, auth_url_found
 
             logger.debug(f"Login STDOUT: {line.strip()}")
 
@@ -280,7 +280,7 @@ def _login(system: System, provider: str = "github") -> Tuple[bool, str, str]:
                 logger.info("Authentication URL and code detected. Displaying to user.")
                 display_github_auth_link(auth_url_found, auth_code_found)
                 # The process should continue running in the background until login is complete or it times out/fails.
-                return True, auth_code_found, auth_code_found
+                return True, auth_code_found, auth_url_found
 
             if proc.poll() is not None:  # Process ended
                 logger.info(
@@ -296,16 +296,16 @@ def _login(system: System, provider: str = "github") -> Tuple[bool, str, str]:
             if proc and proc.poll() is None:  # If somehow still running
                 proc.terminate()
                 proc.wait()
-            return False, auth_code_found, auth_code_found
+            return False, auth_code_found, auth_url_found
 
         # Should have returned True inside the loop if both found
-        return False, auth_code_found, auth_code_found  # Fallback
+        return False, auth_code_found, auth_url_found  # Fallback
 
     except FileNotFoundError:  # For cli_exe_abs_path
         logger.error(
             f"VS Code CLI ('{cli_exe_abs_path}') not found by Popen. Ensure it's downloaded and executable."
         )
-        return False, auth_code_found, auth_code_found
+        return False, auth_code_found, auth_url_found
     except Exception as e:
         logger.exception(
             f"An unexpected error occurred during VS Code Tunnel login: {e}"
@@ -313,7 +313,7 @@ def _login(system: System, provider: str = "github") -> Tuple[bool, str, str]:
         if proc and proc.poll() is None:
             proc.terminate()
             proc.wait()
-        return False, auth_code_found, auth_code_found
+        return False, auth_code_found, auth_url_found
 
 
 def _configure_environment_for_tunnel(
