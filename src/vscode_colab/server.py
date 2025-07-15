@@ -186,7 +186,7 @@ def display_vscode_connection_options(tunnel_url: str, tunnel_name: str) -> None
     display(HTML(html_content))
 
 
-def login(system: System, provider: str = "github") -> bool:
+def login(system: System, provider: str = "github") -> (bool, str, str):
     """
     Handles the login process for VS Code Tunnel.
     Returns True on success (auth info displayed), False otherwise.
@@ -194,14 +194,14 @@ def login(system: System, provider: str = "github") -> bool:
     # Clear any previous login flag at the start of a new login attempt
     if os.environ.get(VSCODE_COLAB_LOGIN_ENV_VAR):
         del os.environ[VSCODE_COLAB_LOGIN_ENV_VAR]
-    if _login(system, provider):
+    ok, auth_code, auth_url = _login(system, provider)
+    if ok:
         # Set environment variable on successful detection of auth info
         os.environ[VSCODE_COLAB_LOGIN_ENV_VAR] = "true"
         logger.info(
             f"Login successful: Set environment variable {VSCODE_COLAB_LOGIN_ENV_VAR}=true"
         )
-        return True
-    return False
+    return ok, auth_code, auth_url
 
 
 def _login(system: System, provider: str = "github") -> bool:
@@ -220,6 +220,8 @@ def _login(system: System, provider: str = "github") -> bool:
     logger.info(f"Initiating VS Code Tunnel login with command: {cmd_str_for_log}")
 
     proc = None
+    auth_url_found: Optional[str] = None
+    auth_code_found: Optional[str] = None
     try:
         # Use CWD of the script/library for Popen, as CLI was downloaded there.
         proc = subprocess.Popen(
@@ -237,7 +239,7 @@ def _login(system: System, provider: str = "github") -> bool:
             if proc:
                 proc.terminate()
                 proc.wait()
-            return False
+            return False, auth_code_found, auth_code_found
 
         start_time = time.time()
         timeout_seconds = 60  # Increased from 60 for robustness
@@ -247,9 +249,6 @@ def _login(system: System, provider: str = "github") -> bool:
         code_re = re.compile(
             r"\s+([A-Z0-9]{4,}-[A-Z0-9]{4,})"
         )  # Capture group for the code
-
-        auth_url_found: Optional[str] = None
-        auth_code_found: Optional[str] = None
 
         logger.info(
             "Monitoring login process output for GitHub authentication URL and code..."
@@ -261,7 +260,7 @@ def _login(system: System, provider: str = "github") -> bool:
                 )
                 proc.terminate()
                 proc.wait()
-                return False
+                return False, auth_code_found, auth_code_found
 
             logger.debug(f"Login STDOUT: {line.strip()}")
 
@@ -281,7 +280,7 @@ def _login(system: System, provider: str = "github") -> bool:
                 logger.info("Authentication URL and code detected. Displaying to user.")
                 display_github_auth_link(auth_url_found, auth_code_found)
                 # The process should continue running in the background until login is complete or it times out/fails.
-                return True
+                return True, auth_code_found, auth_code_found
 
             if proc.poll() is not None:  # Process ended
                 logger.info(
@@ -297,16 +296,16 @@ def _login(system: System, provider: str = "github") -> bool:
             if proc and proc.poll() is None:  # If somehow still running
                 proc.terminate()
                 proc.wait()
-            return False
+            return False, auth_code_found, auth_code_found
 
         # Should have returned True inside the loop if both found
-        return False  # Fallback
+        return False, auth_code_found, auth_code_found  # Fallback
 
     except FileNotFoundError:  # For cli_exe_abs_path
         logger.error(
             f"VS Code CLI ('{cli_exe_abs_path}') not found by Popen. Ensure it's downloaded and executable."
         )
-        return False
+        return False, auth_code_found, auth_code_found
     except Exception as e:
         logger.exception(
             f"An unexpected error occurred during VS Code Tunnel login: {e}"
@@ -314,7 +313,7 @@ def _login(system: System, provider: str = "github") -> bool:
         if proc and proc.poll() is None:
             proc.terminate()
             proc.wait()
-        return False
+        return False, auth_code_found, auth_code_found
 
 
 def _configure_environment_for_tunnel(
