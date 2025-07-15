@@ -186,7 +186,7 @@ def display_vscode_connection_options(tunnel_url: str, tunnel_name: str) -> None
     display(HTML(html_content))
 
 
-def login(system: System, provider: str = "github") -> (bool, str, str):
+def login(system: System, provider: str = "github") -> Tuple[bool, str, str]:
     """
     Handles the login process for VS Code Tunnel.
     Returns True on success (auth info displayed), False otherwise.
@@ -204,7 +204,7 @@ def login(system: System, provider: str = "github") -> (bool, str, str):
     return ok, auth_code, auth_url
 
 
-def _login(system: System, provider: str = "github") -> bool:
+def _login(system: System, provider: str = "github") -> Tuple[bool, str, str]:
     cli_download_res = download_vscode_cli(system=system)  # Downloads to CWD by default
     if not cli_download_res.is_ok or not cli_download_res.value:
         logger.error(
