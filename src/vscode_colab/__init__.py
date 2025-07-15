@@ -14,7 +14,7 @@ from vscode_colab.utils import SystemOperationResult
 _default_system_instance = System()
 
 
-def login(provider: str = "github", system: Optional[System] = None) -> Tuple[bool, str, bool]:
+def login(provider: str = "github", system: Optional[System] = None) -> Tuple[bool, str, str]:
     """
     Attempts to log in to VS Code Tunnel using the specified authentication provider.
     On Linux, this involves running the 'code tunnel user login' command.
