@@ -14,7 +14,7 @@ from vscode_colab.utils import SystemOperationResult
 _default_system_instance = System()
 
 
-def login(provider: str = "github", system: Optional[System] = None) -> bool:
+def login(provider: str = "github", system: Optional[System] = None) -> (bool, str, str):
     """
     Attempts to log in to VS Code Tunnel using the specified authentication provider.
     On Linux, this involves running the 'code tunnel user login' command.
@@ -24,7 +24,8 @@ def login(provider: str = "github", system: Optional[System] = None) -> bool:
         system: Optional System instance for dependency injection (testing).
 
     Returns:
-        bool: True if the login process initiated successfully (auth info displayed), False otherwise.
+        bool, str, str: (True, 'XXXX-XXXX', 'https://github.com/login...') if the login process initiated 
+                        successfully (auth info displayed, and returned), (False, None, None otherwise.       
     """
     active_system = system if system is not None else _default_system_instance
     # The server_login function handles the logic and returns a simple bool.
